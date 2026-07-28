@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "starlink-isl"
+version = "0.1.0"
+description = "Starlink inter-satellite link analysis using CelesTrak orbital data"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "matplotlib>=3.9",
+  "networkx>=3.3",
+  "numpy>=2.0",
+  "pandas>=2.2",
+  "requests>=2.32",
+  "scipy>=1.14",
+  "sgp4>=2.23",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3"]
+
+[project.scripts]
+starlink-fetch = "starlink_isl.celestrak:main"
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
