@@ -136,6 +136,20 @@ print(budget.snr_db)
 가시구간 밖의 수치도 계산되지만 물리적으로 사용할 수 없으므로 반환되는
 `visible` 마스크를 적용해야 합니다.
 
+## 시뮬레이션 실행과 그래프
+
+```powershell
+starlink-simulate `
+  --carrier-ghz 10 `
+  --bandwidth-mhz 100 `
+  --minimum-elevation-deg 10 `
+  --time-step-s 1
+```
+
+기본 출력 디렉터리 `outputs/ideal_downlink/`에 `results.csv`,
+`summary.json`, 궤도·지상궤적·기하·도플러·링크 버짓 PNG가 생성됩니다.
+기본 무선 파라미터는 시각화용 예시이며 실제 Starlink 사양이 아닙니다.
+
 ## 테스트
 
 ```powershell
