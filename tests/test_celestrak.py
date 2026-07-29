@@ -8,6 +8,7 @@ import requests
 from starlink_isl.celestrak import (
     CelesTrakError,
     cache_is_fresh,
+    fetch_catalog_omm,
     fetch_starlink_omm,
 )
 
@@ -36,9 +37,11 @@ class FakeSession:
     def __init__(self, response):
         self.response = response
         self.calls = 0
+        self.last_kwargs = None
 
     def get(self, *args, **kwargs):
         self.calls += 1
+        self.last_kwargs = kwargs
         return self.response
 
 
@@ -83,3 +86,17 @@ def test_cache_age_boundary(tmp_path: Path):
     assert cache_is_fresh(cache, now=modified + timedelta(minutes=119))
     assert not cache_is_fresh(cache, now=modified + timedelta(hours=2))
 
+
+def test_catalog_download_uses_specific_query(tmp_path: Path):
+    cache = tmp_path / "catalog.json"
+    session = FakeSession(FakeResponse([SAMPLE_RECORD]))
+
+    record = fetch_catalog_omm(99999, cache, session=session)
+
+    assert record == SAMPLE_RECORD
+    assert json.loads(cache.read_text(encoding="utf-8")) == [SAMPLE_RECORD]
+    assert session.calls == 1
+    assert session.last_kwargs["params"] == {
+        "CATNR": "99999",
+        "FORMAT": "JSON",
+    }

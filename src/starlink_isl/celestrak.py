@@ -10,10 +10,8 @@ from typing import Any
 
 import requests
 
-CELESTRAK_STARLINK_URL = (
-    "https://celestrak.org/NORAD/elements/gp.php"
-    "?GROUP=STARLINK&FORMAT=JSON"
-)
+CELESTRAK_GP_URL = "https://celestrak.org/NORAD/elements/gp.php"
+CELESTRAK_STARLINK_URL = f"{CELESTRAK_GP_URL}?GROUP=STARLINK&FORMAT=JSON"
 DEFAULT_CACHE_PATH = Path("data/raw/starlink_omm.json")
 MIN_CACHE_AGE = timedelta(hours=2)
 USER_AGENT = "starlink-isl-research/0.1"
@@ -108,6 +106,64 @@ def fetch_starlink_omm(
     return payload
 
 
+def fetch_catalog_omm(
+    catalog_id: int,
+    cache_path: Path,
+    *,
+    force: bool = False,
+    timeout: float = 30.0,
+    session: requests.Session | None = None,
+) -> dict[str, Any]:
+    """Return one catalog object's OMM record with a two-hour local cache."""
+    if catalog_id <= 0:
+        raise ValueError("catalog_id must be positive")
+    if not force and cache_is_fresh(cache_path):
+        records = load_omm(cache_path)
+        if len(records) != 1:
+            raise CelesTrakError("단일 위성 캐시에 레코드가 하나가 아닙니다.")
+        record = records[0]
+        if int(record["NORAD_CAT_ID"]) != catalog_id:
+            raise CelesTrakError("캐시의 NORAD ID가 요청과 일치하지 않습니다.")
+        return record
+
+    client = session or requests.Session()
+    try:
+        response = client.get(
+            CELESTRAK_GP_URL,
+            params={"CATNR": str(catalog_id), "FORMAT": "JSON"},
+            headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except (requests.RequestException, ValueError) as exc:
+        raise CelesTrakError(
+            "CelesTrak 요청에 실패했습니다. 자동 재시도하지 않습니다."
+        ) from exc
+
+    if not isinstance(payload, list) or len(payload) != 1:
+        raise CelesTrakError("CelesTrak이 단일 OMM 레코드를 반환하지 않았습니다.")
+    record = payload[0]
+    if (
+        not isinstance(record, dict)
+        or "OBJECT_NAME" not in record
+        or "NORAD_CAT_ID" not in record
+        or "EPOCH" not in record
+    ):
+        raise CelesTrakError("OMM 응답에 필수 필드가 없습니다.")
+    if int(record["NORAD_CAT_ID"]) != catalog_id:
+        raise CelesTrakError("응답의 NORAD ID가 요청과 일치하지 않습니다.")
+
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = cache_path.with_suffix(cache_path.suffix + ".tmp")
+    temporary_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    temporary_path.replace(cache_path)
+    return record
+
+
 def main() -> None:
     """Run the CelesTrak downloader from the command line."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -133,4 +189,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

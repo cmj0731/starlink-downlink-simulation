@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -409,6 +410,8 @@ def _save_geometry(
     end_s: float,
     minimum_elevation_deg: float,
     path: Path,
+    *,
+    time_label: str = "Time from overhead (s)",
 ) -> None:
     figure, axes = plt.subplots(
         2,
@@ -427,7 +430,7 @@ def _save_geometry(
     axes[0].set(ylabel="Elevation (deg)", title="Downlink geometry")
     axes[0].legend()
     axes[1].plot(frame["time_s"], frame["slant_range_km"])
-    axes[1].set(xlabel="Time from overhead (s)", ylabel="Slant range (km)")
+    axes[1].set(xlabel=time_label, ylabel="Slant range (km)")
     _mark_pass_events(axes, start_s, end_s)
     figure.savefig(path, dpi=160)
     plt.close(figure)
@@ -438,6 +441,8 @@ def _save_delay_doppler(
     start_s: float,
     end_s: float,
     path: Path,
+    *,
+    time_label: str = "Time from overhead (s)",
 ) -> None:
     figure, axes = plt.subplots(
         3,
@@ -457,7 +462,7 @@ def _save_delay_doppler(
     axes[2].plot(frame["time_s"], frame["doppler_shift_hz"] / 1e3)
     axes[2].axhline(0.0, color="0.45", linewidth=0.8)
     axes[2].set(
-        xlabel="Time from overhead (s)",
+        xlabel=time_label,
         ylabel="Doppler shift (kHz)",
     )
     _mark_pass_events(axes, start_s, end_s)
@@ -470,6 +475,8 @@ def _save_link_budget(
     start_s: float,
     end_s: float,
     path: Path,
+    *,
+    time_label: str = "Time from overhead (s)",
 ) -> None:
     figure, axes = plt.subplots(
         3,
@@ -494,7 +501,7 @@ def _save_link_budget(
     axes[1].set(ylabel="Power (dBW)")
     axes[1].legend()
     axes[2].plot(frame["time_s"], frame["snr_db"])
-    axes[2].set(xlabel="Time from overhead (s)", ylabel="SNR (dB)")
+    axes[2].set(xlabel=time_label, ylabel="SNR (dB)")
     _mark_pass_events(axes, start_s, end_s)
     figure.savefig(path, dpi=160)
     plt.close(figure)
@@ -642,7 +649,8 @@ def run_simulation(
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT_DIRECTORY)
+    parser.add_argument("--model", choices=("ideal", "sgp4"), default="ideal")
+    parser.add_argument("--output", type=Path)
     parser.add_argument("--carrier-ghz", type=float, default=10.0)
     parser.add_argument("--bandwidth-mhz", type=float, default=100.0)
     parser.add_argument("--minimum-elevation-deg", type=float, default=10.0)
@@ -652,11 +660,16 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--receive-gain-dbi", type=float, default=40.0)
     parser.add_argument("--system-noise-temperature-k", type=float, default=290.0)
     parser.add_argument("--other-losses-db", type=float, default=2.0)
+    parser.add_argument("--norad-id", type=int, default=55_296)
+    parser.add_argument("--start-utc")
+    parser.add_argument("--search-hours", type=float, default=24.0)
+    parser.add_argument("--station-altitude-m", type=float, default=0.0)
+    parser.add_argument("--force-download", action="store_true")
     return parser
 
 
 def main() -> None:
-    """Run the command-line ideal downlink simulation."""
+    """Run the selected ideal or CelesTrak/SGP4 downlink simulation."""
     args = _parser().parse_args()
     radio = LinkBudgetConfig(
         carrier_frequency_hz=args.carrier_ghz * 1e9,
@@ -667,13 +680,53 @@ def main() -> None:
         system_noise_temperature_k=args.system_noise_temperature_k,
         other_losses_db=args.other_losses_db,
     )
-    artifacts = run_simulation(
-        args.output,
-        radio=radio,
-        minimum_elevation_deg=args.minimum_elevation_deg,
-        time_step_s=args.time_step_s,
-    )
-    print(f"Simulation artifacts written to: {args.output}")
+    if args.model == "ideal":
+        output = args.output or DEFAULT_OUTPUT_DIRECTORY
+        artifacts = run_simulation(
+            output,
+            radio=radio,
+            minimum_elevation_deg=args.minimum_elevation_deg,
+            time_step_s=args.time_step_s,
+        )
+    else:
+        from starlink_isl.celestrak import fetch_catalog_omm
+        from starlink_isl.sgp4_orbit import GroundStation
+        from starlink_isl.sgp4_simulate import (
+            DEFAULT_SGP4_OUTPUT_DIRECTORY,
+            parse_utc,
+            run_sgp4_simulation,
+        )
+
+        output = args.output or DEFAULT_SGP4_OUTPUT_DIRECTORY
+        cache_path = Path(
+            f"data/raw/starlink_{args.norad_id}_omm.json"
+        )
+        record = fetch_catalog_omm(
+            args.norad_id,
+            cache_path,
+            force=args.force_download,
+        )
+        search_start = (
+            parse_utc(args.start_utc)
+            if args.start_utc
+            else datetime.now(timezone.utc).replace(
+                minute=0,
+                second=0,
+                microsecond=0,
+            )
+        )
+        artifacts = run_sgp4_simulation(
+            output,
+            omm_record=record,
+            search_start_utc=search_start,
+            search_hours=args.search_hours,
+            station=GroundStation(altitude_m=args.station_altitude_m),
+            radio=radio,
+            minimum_elevation_deg=args.minimum_elevation_deg,
+            time_step_s=args.time_step_s,
+        )
+
+    print(f"Simulation artifacts written to: {output}")
     for path in asdict(artifacts).values():
         print(f"- {path}")
 

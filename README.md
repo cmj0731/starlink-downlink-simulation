@@ -153,6 +153,23 @@ CSV 시간 배열에는 가시 시작·종료, 최근접점과 `t=0`이 정확�
 `event` 열에서 해당 행을 확인할 수 있습니다. 궤도 그림은 전체 한 궤도를
 기준선으로 표시하되 CSV에는 기존 패스 분석 시간 범위만 저장합니다.
 
+### 실제 CelesTrak OMM·SGP4 패스
+
+```powershell
+starlink-simulate `
+  --model sgp4 `
+  --norad-id 55296 `
+  --start-utc 2026-07-29T00:00:00Z `
+  --search-hours 24 `
+  --minimum-elevation-deg 10
+```
+
+실제 모델은 성균관대 자연과학캠퍼스의 WGS-84 좌표
+`37.2934° N, 126.9747° E`를 사용합니다. 검색 구간의 모든 패스를
+`outputs/sgp4_downlink/passes.csv`에 기록하고, 최대 앙각 패스의 상세
+결과와 그래프를 같은 디렉터리에 생성합니다. 이상 모델 결과가 있는
+`outputs/ideal_downlink/`는 변경하지 않습니다.
+
 ## 테스트
 
 ```powershell
