@@ -91,6 +91,24 @@ print(geometry.elevation_deg)
 지상국 사이의 3차원 경사거리를 사용합니다. 방위각은 북쪽 기준 시계방향이며,
 정확한 천정에서는 방향이 정의되지 않으므로 `NaN`을 반환합니다.
 
+## 전파 지연과 도플러
+
+```python
+from starlink_isl import downlink_dynamics
+
+dynamics = downlink_dynamics(times_s, carrier_frequency_hz=10.0e9)
+
+print(dynamics.propagation_delay_s)
+print(dynamics.radial_velocity_km_s)
+print(dynamics.doppler_shift_hz)
+print(dynamics.doppler_phase_rad)
+```
+
+시선방향 속도는 거리가 증가할 때 양수입니다. 프로젝트의 도플러 부호 규칙은
+`f_D = -(v_r/c) f_c`이므로 위성이 접근할 때 양의 편이, 이탈할 때 음의
+편이가 발생합니다. 누적 위상은 기본적으로 천정 통과 시각 `t=0`을 기준으로
+하며 시간 미분은 `2*pi*f_D`입니다.
+
 ## 테스트
 
 ```powershell
