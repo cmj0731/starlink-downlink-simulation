@@ -55,6 +55,25 @@ print(len(records))
 
 - [이상적 STARLINK-5285 downlink 모델 정의](docs/model.md)
 
+## 이상적 운동 모델
+
+```python
+import numpy as np
+
+from starlink_isl import ground_station_state, satellite_state
+
+times_s = np.arange(-1_000.0, 1_001.0)
+ground_station = ground_station_state(times_s)
+satellite = satellite_state(times_s)
+
+print(ground_station.position_km.shape)
+print(satellite.position_km.shape)
+```
+
+위치와 속도는 지구중심 관성좌표계(ECI)에서 각각 km와 km/s 단위로
+반환됩니다. 기본 모델은 `t=0`에 STARLINK-5285가 성균관대 지상국의
+천정을 북향으로 통과하도록 구성되어 있습니다.
+
 ## 테스트
 
 ```powershell
