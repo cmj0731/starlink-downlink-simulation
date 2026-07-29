@@ -26,11 +26,19 @@ RADIO = LinkBudgetConfig(
 
 
 def test_time_samples_include_requested_end():
-    samples = build_time_samples(-1.0, 1.0, 0.6)
+    events = np.array([-0.4, 0.0, 0.35])
+    samples = build_time_samples(
+        -1.0,
+        1.0,
+        0.6,
+        event_times_s=events,
+    )
 
     assert samples[0] == -1.0
     assert samples[-1] == 1.0
     assert np.all(np.diff(samples) > 0.0)
+    for event in events:
+        assert np.count_nonzero(samples == event) == 1
 
 
 def test_ground_track_starts_above_station():
@@ -52,7 +60,7 @@ def test_simulation_writes_complete_artifact_set(tmp_path: Path):
         tmp_path,
         radio=RADIO,
         minimum_elevation_deg=10.0,
-        time_step_s=10.0,
+        time_step_s=1.0,
     )
 
     for path in (
@@ -86,6 +94,36 @@ def test_simulation_writes_complete_artifact_set(tmp_path: Path):
     assert summary["radio_parameters_are_illustrative"]
     assert summary["minimum_elevation_deg"] == 10.0
     assert summary["sample_count"] == len(frame)
+    events = summary["events_s"]
+
+    overhead = frame.loc[frame["time_s"] == events["overhead"]].iloc[0]
+    assert overhead["event"] == "closest_approach|overhead"
+    assert overhead["slant_range_km"] == pytest.approx(572.0)
+    assert overhead["elevation_deg"] == pytest.approx(90.0)
+    assert overhead["radial_velocity_km_s"] == pytest.approx(0.0, abs=1e-12)
+    assert overhead["doppler_shift_hz"] == pytest.approx(0.0, abs=1e-6)
+
+    for name in ("visibility_start", "visibility_end"):
+        event_row = frame.loc[frame["time_s"] == events[name]].iloc[0]
+        assert event_row["elevation_deg"] == pytest.approx(10.0, abs=1e-10)
+
+    times = frame["time_s"].to_numpy()
+    numerical_range_rate = np.gradient(
+        frame["slant_range_km"].to_numpy(),
+        times,
+    )
+    assert frame["radial_velocity_km_s"].to_numpy()[1:-1] == pytest.approx(
+        numerical_range_rate[1:-1],
+        abs=2e-4,
+    )
+    numerical_phase_rate = np.gradient(
+        frame["doppler_phase_rad"].to_numpy(),
+        times,
+    )
+    assert numerical_phase_rate[1:-1] == pytest.approx(
+        2.0 * np.pi * frame["doppler_shift_hz"].to_numpy()[1:-1],
+        abs=40.0,
+    )
 
     for path in (
         artifacts.orbit_3d_png,
@@ -118,4 +156,3 @@ def test_ground_track_shape_mismatch_is_rejected():
             np.zeros(3),
             0.0,
         )
-

@@ -19,6 +19,7 @@ from numpy.typing import ArrayLike, NDArray
 
 from starlink_isl.downlink_dynamics import downlink_dynamics
 from starlink_isl.downlink_geometry import (
+    VisibilityWindow,
     downlink_geometry,
     visibility_window,
 )
@@ -58,18 +59,30 @@ def build_time_samples(
     start_s: float,
     end_s: float,
     step_s: float,
+    *,
+    event_times_s: ArrayLike = (),
 ) -> FloatArray:
-    """Build an inclusive, monotonically increasing time array."""
+    """Build an inclusive time array containing exact event timestamps."""
     if not np.isfinite(start_s) or not np.isfinite(end_s):
         raise ValueError("start_s and end_s must be finite")
     if end_s <= start_s:
         raise ValueError("end_s must be greater than start_s")
     _finite_positive(step_s, "step_s")
 
-    times = np.arange(start_s, end_s, step_s, dtype=np.float64)
-    if times.size == 0 or not np.isclose(times[-1], end_s):
-        times = np.append(times, end_s)
-    return times
+    regular_times = np.arange(start_s, end_s, step_s, dtype=np.float64)
+    if regular_times.size == 0 or not np.isclose(regular_times[-1], end_s):
+        regular_times = np.append(regular_times, end_s)
+
+    event_times = np.asarray(event_times_s, dtype=np.float64).reshape(-1)
+    if not np.all(np.isfinite(event_times)):
+        raise ValueError("event_times_s must contain only finite values")
+    if event_times.size:
+        # Prefer the exact event value when a regular sample is equal to it
+        # within floating-point time resolution.
+        separation = np.abs(regular_times[:, None] - event_times[None, :])
+        regular_times = regular_times[np.all(separation > 1e-9, axis=1)]
+
+    return np.unique(np.sort(np.concatenate((regular_times, event_times))))
 
 
 def eci_to_spherical_ground_track(
@@ -160,6 +173,39 @@ def _simulation_frame(
     )
 
 
+def _add_event_labels(
+    frame: pd.DataFrame,
+    *,
+    visibility_start_s: float,
+    visibility_end_s: float,
+    closest_approach_s: float,
+) -> None:
+    labels: dict[float, list[str]] = {
+        visibility_start_s: ["visibility_start"],
+        visibility_end_s: ["visibility_end"],
+        closest_approach_s: ["closest_approach"],
+    }
+    labels.setdefault(0.0, []).append("overhead")
+    frame["event"] = ""
+    for time_s, names in labels.items():
+        matches = frame["time_s"] == time_s
+        if not bool(matches.any()):
+            raise RuntimeError(f"required event time is missing: {time_s}")
+        frame.loc[matches, "event"] = "|".join(names)
+
+
+def _break_longitude_wrap(
+    longitude_deg: ArrayLike,
+    latitude_deg: ArrayLike,
+) -> tuple[FloatArray, FloatArray]:
+    longitude = np.asarray(longitude_deg, dtype=np.float64).copy()
+    latitude = np.asarray(latitude_deg, dtype=np.float64).copy()
+    jumps = np.abs(np.diff(longitude)) > 180.0
+    longitude[1:][jumps] = np.nan
+    latitude[1:][jumps] = np.nan
+    return longitude, latitude
+
+
 def _mark_pass_events(
     axes: ArrayLike,
     start_s: float,
@@ -179,6 +225,12 @@ def _save_orbit_3d(
 ) -> None:
     figure = plt.figure(figsize=(8.0, 7.0), constrained_layout=True)
     axis = figure.add_subplot(111, projection="3d")
+    full_orbit_times = np.linspace(
+        -0.5 * orbit.orbital_period_s,
+        0.5 * orbit.orbital_period_s,
+        1_441,
+    )
+    full_orbit = satellite_state(full_orbit_times, orbit)
 
     longitude = np.linspace(0.0, 2.0 * np.pi, 40)
     latitude = np.linspace(-0.5 * np.pi, 0.5 * np.pi, 20)
@@ -204,24 +256,52 @@ def _save_orbit_3d(
         linewidth=0.35,
     )
     axis.plot(
+        full_orbit.position_km[:, 0],
+        full_orbit.position_km[:, 1],
+        full_orbit.position_km[:, 2],
+        color="0.55",
+        linewidth=0.8,
+        label="Full orbit reference",
+    )
+    axis.plot(
         frame["satellite_x_eci_km"],
         frame["satellite_y_eci_km"],
         frame["satellite_z_eci_km"],
-        label="Satellite",
-        linewidth=1.8,
+        color="tab:blue",
+        label="Analysis interval",
+        linewidth=1.5,
+    )
+    visible = frame["visible"].to_numpy()
+    visible_position = frame[
+        [
+            "satellite_x_eci_km",
+            "satellite_y_eci_km",
+            "satellite_z_eci_km",
+        ]
+    ].to_numpy(copy=True)
+    visible_position[~visible] = np.nan
+    axis.plot(
+        visible_position[:, 0],
+        visible_position[:, 1],
+        visible_position[:, 2],
+        color="tab:blue",
+        label="Visible interval",
+        linewidth=3.2,
     )
     axis.plot(
         frame["station_x_eci_km"],
         frame["station_y_eci_km"],
         frame["station_z_eci_km"],
-        label="Ground station",
+        color="tab:orange",
+        label="Ground-station rotation",
         linewidth=1.8,
     )
-    overhead = frame.iloc[np.abs(frame["time_s"]).argmin()]
+    overhead = frame.loc[frame["time_s"] == 0.0].iloc[0]
     axis.scatter(
         [overhead["satellite_x_eci_km"]],
         [overhead["satellite_y_eci_km"]],
         [overhead["satellite_z_eci_km"]],
+        color="tab:blue",
         marker="o",
         label="Overhead at t=0",
     )
@@ -233,7 +313,7 @@ def _save_orbit_3d(
         xlabel="ECI x (km)",
         ylabel="ECI y (km)",
         zlabel="ECI z (km)",
-        title="Ideal orbit and rotating ground station",
+        title="Full ideal orbit, analysis interval, and visible pass",
     )
     axis.set_box_aspect((1.0, 1.0, 1.0))
     axis.legend(loc="upper left")
@@ -246,20 +326,64 @@ def _save_ground_track(
     orbit: IdealOrbitConfig,
     path: Path,
 ) -> None:
-    longitude = frame["satellite_longitude_deg"].to_numpy(copy=True)
-    latitude = frame["satellite_latitude_deg"].to_numpy(copy=True)
-    jumps = np.abs(np.diff(longitude)) > 180.0
-    longitude[1:][jumps] = np.nan
-    latitude[1:][jumps] = np.nan
+    full_times = np.linspace(
+        -0.5 * orbit.orbital_period_s,
+        0.5 * orbit.orbital_period_s,
+        1_441,
+    )
+    full_state = satellite_state(full_times, orbit)
+    full_longitude, full_latitude, _ = eci_to_spherical_ground_track(
+        full_state.position_km,
+        full_times,
+        orbit.earth_rotation_rate_rad_s,
+    )
+    full_longitude, full_latitude = _break_longitude_wrap(
+        full_longitude,
+        full_latitude,
+    )
+    analysis_longitude, analysis_latitude = _break_longitude_wrap(
+        frame["satellite_longitude_deg"],
+        frame["satellite_latitude_deg"],
+    )
+    visible = frame["visible"].to_numpy()
+    visible_longitude = frame["satellite_longitude_deg"].to_numpy(copy=True)
+    visible_latitude = frame["satellite_latitude_deg"].to_numpy(copy=True)
+    visible_longitude[~visible] = np.nan
+    visible_latitude[~visible] = np.nan
+    visible_longitude, visible_latitude = _break_longitude_wrap(
+        visible_longitude,
+        visible_latitude,
+    )
 
     figure, axis = plt.subplots(
         figsize=(9.0, 4.8),
         constrained_layout=True,
     )
-    axis.plot(longitude, latitude, label="Satellite ground track")
+    axis.plot(
+        full_longitude,
+        full_latitude,
+        color="0.6",
+        linewidth=0.8,
+        label="Full-orbit ground track",
+    )
+    axis.plot(
+        analysis_longitude,
+        analysis_latitude,
+        color="tab:blue",
+        linewidth=1.5,
+        label="Analysis interval",
+    )
+    axis.plot(
+        visible_longitude,
+        visible_latitude,
+        color="tab:blue",
+        linewidth=3.2,
+        label="Visible interval",
+    )
     axis.scatter(
         [orbit.station_initial_longitude_deg],
         [orbit.station_latitude_deg],
+        color="tab:orange",
         marker="^",
         s=65,
         label="Ground station at t=0",
@@ -271,7 +395,7 @@ def _save_ground_track(
         yticks=np.arange(-90.0, 91.0, 30.0),
         xlabel="Earth-fixed longitude (deg)",
         ylabel="Latitude (deg)",
-        title="Ideal satellite ground track",
+        title="Full-orbit and visible-pass ground tracks",
     )
     axis.grid(True, alpha=0.3)
     axis.legend()
@@ -381,11 +505,8 @@ def _summary(
     orbit: IdealOrbitConfig,
     radio: LinkBudgetConfig,
     minimum_elevation_deg: float,
+    window: VisibilityWindow,
 ) -> dict[str, Any]:
-    window = visibility_window(
-        orbit,
-        minimum_elevation_deg=minimum_elevation_deg,
-    )
     visible = frame.loc[frame["visible"]]
     return {
         "model": "ideal STARLINK-5285 overhead downlink",
@@ -394,6 +515,12 @@ def _summary(
         "radio": asdict(radio),
         "minimum_elevation_deg": minimum_elevation_deg,
         "visibility": asdict(window),
+        "events_s": {
+            "visibility_start": window.start_s,
+            "overhead": 0.0,
+            "closest_approach": window.closest_approach_s,
+            "visibility_end": window.end_s,
+        },
         "sample_count": len(frame),
         "visible_sample_count": len(visible),
         "visible_extrema": {
@@ -444,12 +571,24 @@ def run_simulation(
         simulation_start,
         simulation_end,
         time_step_s,
+        event_times_s=(
+            window.start_s,
+            0.0,
+            window.closest_approach_s,
+            window.end_s,
+        ),
     )
     frame = _simulation_frame(
         times,
         orbit,
         radio,
         minimum_elevation_deg,
+    )
+    _add_event_labels(
+        frame,
+        visibility_start_s=window.start_s,
+        visibility_end_s=window.end_s,
+        closest_approach_s=window.closest_approach_s,
     )
 
     output_directory.mkdir(parents=True, exist_ok=True)
@@ -465,7 +604,13 @@ def run_simulation(
     frame.to_csv(artifacts.results_csv, index=False)
     artifacts.summary_json.write_text(
         json.dumps(
-            _summary(frame, orbit, radio, minimum_elevation_deg),
+            _summary(
+                frame,
+                orbit,
+                radio,
+                minimum_elevation_deg,
+                window,
+            ),
             ensure_ascii=False,
             indent=2,
         ),
@@ -535,4 +680,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
