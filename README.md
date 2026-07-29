@@ -109,6 +109,33 @@ print(dynamics.doppler_phase_rad)
 편이가 발생합니다. 누적 위상은 기본적으로 천정 통과 시각 `t=0`을 기준으로
 하며 시간 미분은 `2*pi*f_D`입니다.
 
+## 자유공간 링크 버짓과 열잡음
+
+```python
+from starlink_isl import LinkBudgetConfig, link_budget
+
+radio = LinkBudgetConfig(
+    carrier_frequency_hz=10.0e9,
+    bandwidth_hz=100.0e6,
+    transmit_power_dbw=10.0,
+    transmit_antenna_gain_dbi=30.0,
+    receive_antenna_gain_dbi=40.0,
+    system_noise_temperature_k=290.0,
+    other_losses_db=2.0,
+)
+budget = link_budget(times_s, radio, minimum_elevation_deg=10.0)
+
+print(budget.received_power_dbw)
+print(budget.thermal_noise_power_dbw)
+print(budget.snr_db)
+```
+
+위 무선 파라미터는 사용법을 보여주기 위한 예시이며 실제 Starlink 장비
+사양을 의미하지 않습니다. 잡음전력은 `k*T*B`로 계산합니다. 실제 링크에는
+안테나 잡음과 수신기 등가 잡음온도를 합친 시스템 잡음온도를 입력해야 합니다.
+가시구간 밖의 수치도 계산되지만 물리적으로 사용할 수 없으므로 반환되는
+`visible` 마스크를 적용해야 합니다.
+
 ## 테스트
 
 ```powershell
