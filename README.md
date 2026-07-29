@@ -74,6 +74,23 @@ print(satellite.position_km.shape)
 반환됩니다. 기본 모델은 `t=0`에 STARLINK-5285가 성균관대 지상국의
 천정을 북향으로 통과하도록 구성되어 있습니다.
 
+## Downlink 기하
+
+```python
+from starlink_isl import downlink_geometry, visibility_window
+
+geometry = downlink_geometry(times_s, minimum_elevation_deg=10.0)
+window = visibility_window(minimum_elevation_deg=10.0)
+
+print(window.start_s, window.end_s, window.duration_s)
+print(geometry.slant_range_km)
+print(geometry.elevation_deg)
+```
+
+대권거리는 지상궤적 분석용으로만 계산하며, 실제 전파거리에는 위성과
+지상국 사이의 3차원 경사거리를 사용합니다. 방위각은 북쪽 기준 시계방향이며,
+정확한 천정에서는 방향이 정의되지 않으므로 `NaN`을 반환합니다.
+
 ## 테스트
 
 ```powershell
