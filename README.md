@@ -51,6 +51,10 @@ print(len(records))
 - HTTP 오류가 발생하면 반복 요청하지 않고 즉시 중단합니다.
 - 원본 궤도 데이터와 생성 결과는 Git에 커밋하지 않습니다.
 
+## 모델 문서
+
+- [이상적 STARLINK-5285 downlink 모델 정의](docs/model.md)
+
 ## 테스트
 
 ```powershell
@@ -69,4 +73,3 @@ pytest
 
 - [CelesTrak](https://celestrak.org/)
 - [CelesTrak GP 데이터 형식과 질의 방법](https://celestrak.org/NORAD/documentation/gp-data-formats.php)
-
