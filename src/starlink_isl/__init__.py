@@ -36,6 +36,7 @@ from starlink_isl.link_budget import (
 from starlink_isl.sgp4_orbit import (
     GroundStation,
     SGP4PropagationError,
+    ecef_to_geodetic,
     geodetic_to_ecef,
     propagate_ecef,
     propagate_teme,
@@ -54,6 +55,7 @@ __all__ = [
     "LinkBudgetResult",
     "GroundStation",
     "SGP4PropagationError",
+    "ecef_to_geodetic",
     "BOLTZMANN_J_K",
     "REFERENCE_NOISE_TEMPERATURE_K",
     "SPEED_OF_LIGHT_KM_S",

@@ -205,6 +205,50 @@ def geodetic_to_ecef(station: GroundStation) -> FloatArray:
     )
 
 
+def ecef_to_geodetic(
+    positions_km: FloatArray,
+) -> tuple[FloatArray, FloatArray, FloatArray]:
+    """Convert ECEF positions to WGS-84 longitude, latitude, altitude.
+
+    Longitude and latitude are returned in degrees and altitude in kilometres.
+    """
+    positions = np.asarray(positions_km, dtype=np.float64)
+    if positions.shape[-1] != 3:
+        raise ValueError("positions_km must end with an xyz axis")
+    x, y, z = np.moveaxis(positions, -1, 0)
+    longitude = np.arctan2(y, x)
+    horizontal = np.hypot(x, y)
+    eccentricity_squared = (
+        WGS84_FLATTENING * (2.0 - WGS84_FLATTENING)
+    )
+    latitude = np.arctan2(
+        z,
+        horizontal * (1.0 - eccentricity_squared),
+    )
+    altitude = np.zeros_like(latitude)
+    for _ in range(8):
+        sine = np.sin(latitude)
+        prime_vertical = WGS84_SEMI_MAJOR_AXIS_KM / np.sqrt(
+            1.0 - eccentricity_squared * sine**2
+        )
+        altitude = horizontal / np.cos(latitude) - prime_vertical
+        latitude = np.arctan2(
+            z,
+            horizontal
+            * (
+                1.0
+                - eccentricity_squared
+                * prime_vertical
+                / (prime_vertical + altitude)
+            ),
+        )
+    return (
+        np.rad2deg(longitude),
+        np.rad2deg(latitude),
+        altitude,
+    )
+
+
 def ground_station_ecef_state(
     station: GroundStation,
     sample_count: int,
@@ -218,4 +262,3 @@ def ground_station_ecef_state(
         axis=0,
     )
     return KinematicState(position, np.zeros_like(position))
-

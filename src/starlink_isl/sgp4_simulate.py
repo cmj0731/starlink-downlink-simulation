@@ -24,6 +24,7 @@ from starlink_isl.ideal_orbit import KinematicState
 from starlink_isl.link_budget import LinkBudgetConfig
 from starlink_isl.sgp4_orbit import (
     GroundStation,
+    ecef_to_geodetic,
     ground_station_ecef_state,
     parse_omm_epoch,
     propagate_ecef,
@@ -82,6 +83,7 @@ def _datetime_samples(
         event_times_s=(
             selected_pass.start_utc.timestamp(),
             selected_pass.closest_approach_utc.timestamp(),
+            selected_pass.maximum_elevation_utc.timestamp(),
             selected_pass.end_utc.timestamp(),
         ),
     )
@@ -89,19 +91,6 @@ def _datetime_samples(
         datetime.fromtimestamp(float(timestamp), timezone.utc)
         for timestamp in timestamps
     ]
-
-
-def _geocentric_lon_lat(
-    positions_km: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    radius = np.linalg.norm(positions_km, axis=-1)
-    longitude = np.rad2deg(
-        np.arctan2(positions_km[..., 1], positions_km[..., 0])
-    )
-    latitude = np.rad2deg(
-        np.arcsin(np.clip(positions_km[..., 2] / radius, -1.0, 1.0))
-    )
-    return longitude, latitude, radius
 
 
 def _actual_frame(
@@ -141,9 +130,10 @@ def _actual_frame(
         ),
     )
     budget = link_budget_from_geometry(geometry, radio)
-    longitude, latitude, radius = _geocentric_lon_lat(
+    longitude, latitude, altitude = ecef_to_geodetic(
         satellite_state.position_km
     )
+    radius = np.linalg.norm(satellite_state.position_km, axis=-1)
     relative_time = np.array(
         [
             (value - selected_pass.closest_approach_utc).total_seconds()
@@ -161,9 +151,18 @@ def _actual_frame(
             "satellite_vx_ecef_km_s": satellite_state.velocity_km_s[:, 0],
             "satellite_vy_ecef_km_s": satellite_state.velocity_km_s[:, 1],
             "satellite_vz_ecef_km_s": satellite_state.velocity_km_s[:, 2],
+            "satellite_geodetic_longitude_deg": longitude,
+            "satellite_geodetic_latitude_deg": latitude,
+            "satellite_geodetic_altitude_km": altitude,
+            # Backward-compatible aliases; both now use WGS-84 geodetic axes.
             "satellite_longitude_deg": longitude,
             "satellite_latitude_deg": latitude,
             "satellite_radius_km": radius,
+            "ground_station_geodetic_longitude_deg": (
+                station.longitude_deg
+            ),
+            "ground_station_geodetic_latitude_deg": station.latitude_deg,
+            "ground_station_geodetic_altitude_m": station.altitude_m,
             "slant_range_km": geometry.slant_range_km,
             "surface_distance_km": geometry.surface_distance_km,
             "azimuth_deg": geometry.azimuth_deg,
@@ -183,17 +182,27 @@ def _actual_frame(
         }
     )
     frame["event"] = ""
-    events = {
-        selected_pass.start_utc.timestamp(): "visibility_start",
-        selected_pass.closest_approach_utc.timestamp(): "closest_approach",
-        selected_pass.end_utc.timestamp(): "visibility_end",
-    }
+    events = (
+        (selected_pass.start_utc.timestamp(), "visibility_start"),
+        (
+            selected_pass.maximum_elevation_utc.timestamp(),
+            "maximum_elevation",
+        ),
+        (
+            selected_pass.closest_approach_utc.timestamp(),
+            "closest_approach",
+        ),
+        (selected_pass.end_utc.timestamp(), "visibility_end"),
+    )
     timestamps = np.array([value.timestamp() for value in datetimes])
-    for timestamp, label in events.items():
+    for timestamp, label in events:
         matches = timestamps == timestamp
         if not np.any(matches):
             raise RuntimeError(f"missing event timestamp: {label}")
-        frame.loc[matches, "event"] = label
+        existing = frame.loc[matches, "event"]
+        frame.loc[matches, "event"] = existing.map(
+            lambda value: f"{value};{label}" if value else label
+        )
     return frame
 
 
@@ -313,7 +322,7 @@ def _save_actual_ground_track(
     path: Path,
 ) -> None:
     _, full_state = _full_orbit_states(satellite, selected_pass)
-    full_longitude, full_latitude, _ = _geocentric_lon_lat(
+    full_longitude, full_latitude, _ = ecef_to_geodetic(
         full_state.position_km
     )
     full_longitude, full_latitude = _break_longitude_wrap(
@@ -321,11 +330,15 @@ def _save_actual_ground_track(
         full_latitude,
     )
     analysis_longitude, analysis_latitude = _break_longitude_wrap(
-        frame["satellite_longitude_deg"],
-        frame["satellite_latitude_deg"],
+        frame["satellite_geodetic_longitude_deg"],
+        frame["satellite_geodetic_latitude_deg"],
     )
-    visible_longitude = frame["satellite_longitude_deg"].to_numpy(copy=True)
-    visible_latitude = frame["satellite_latitude_deg"].to_numpy(copy=True)
+    visible_longitude = frame[
+        "satellite_geodetic_longitude_deg"
+    ].to_numpy(copy=True)
+    visible_latitude = frame[
+        "satellite_geodetic_latitude_deg"
+    ].to_numpy(copy=True)
     invisible = ~frame["visible"].to_numpy()
     visible_longitude[invisible] = np.nan
     visible_latitude[invisible] = np.nan
@@ -373,7 +386,7 @@ def _save_actual_ground_track(
         xticks=np.arange(-180.0, 181.0, 60.0),
         yticks=np.arange(-90.0, 91.0, 30.0),
         xlabel="Longitude (deg)",
-        ylabel="Geocentric latitude (deg)",
+        ylabel="Geodetic latitude (deg)",
         title="SGP4 ground track and selected visible pass",
     )
     axis.grid(True, alpha=0.3)
@@ -388,6 +401,9 @@ def _passes_frame(passes: list[ActualPass]) -> pd.DataFrame:
             {
                 "start_utc": _iso(item.start_utc),
                 "closest_approach_utc": _iso(item.closest_approach_utc),
+                "maximum_elevation_utc": _iso(
+                    item.maximum_elevation_utc
+                ),
                 "end_utc": _iso(item.end_utc),
                 "duration_s": item.duration_s,
                 "maximum_elevation_deg": item.maximum_elevation_deg,
@@ -428,6 +444,9 @@ def _summary(
             "closest_approach_utc": _iso(
                 selected_pass.closest_approach_utc
             ),
+            "maximum_elevation_utc": _iso(
+                selected_pass.maximum_elevation_utc
+            ),
             "end_utc": _iso(selected_pass.end_utc),
         },
         "sample_count": len(frame),
@@ -453,6 +472,13 @@ def _summary(
             "target_frame": "ECEF",
             "earth_rotation": "Vallado GMST with UTC used as UT1 proxy",
             "omitted": ["polar motion", "UT1-UTC correction"],
+            "ground_track_coordinates": (
+                "WGS-84 geodetic longitude, latitude, and altitude"
+            ),
+            "surface_distance_km": (
+                "spherical central-angle approximation using a "
+                "6371.0088 km mean Earth radius; not a WGS-84 geodesic"
+            ),
         },
     }
 

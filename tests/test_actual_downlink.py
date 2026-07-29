@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from starlink_isl.actual_downlink import (
+    VISIBILITY_ELEVATION_TOLERANCE_DEG,
     dynamics_from_ecef_states,
     find_visibility_passes,
     geometry_from_ecef_states,
@@ -43,10 +44,11 @@ def test_actual_pass_boundaries_and_closest_approach():
     event_times = [
         selected.start_utc,
         selected.closest_approach_utc,
+        selected.maximum_elevation_utc,
         selected.end_utc,
     ]
     satellite_state = propagate_ecef(SATELLITE, event_times)
-    ground_state = ground_station_ecef_state(STATION, 3)
+    ground_state = ground_station_ecef_state(STATION, 4)
     geometry = geometry_from_ecef_states(
         satellite_state,
         ground_state,
@@ -61,12 +63,20 @@ def test_actual_pass_boundaries_and_closest_approach():
         phase_reference_range_km=selected.minimum_slant_range_km,
     )
 
-    assert geometry.elevation_deg[[0, 2]] == pytest.approx(
+    assert geometry.elevation_deg[[0, 3]] == pytest.approx(
         [10.0, 10.0],
-        abs=1e-7,
+        abs=VISIBILITY_ELEVATION_TOLERANCE_DEG,
     )
-    assert geometry.elevation_deg[1] == pytest.approx(
+    assert geometry.visible[[0, 3]].tolist() == [True, True]
+    assert geometry.elevation_deg[2] == pytest.approx(
         selected.maximum_elevation_deg
+    )
+    assert geometry.elevation_deg[2] >= geometry.elevation_deg[1]
+    assert geometry.slant_range_km[1] <= geometry.slant_range_km[2]
+    assert (
+        selected.start_utc
+        <= selected.maximum_elevation_utc
+        <= selected.end_utc
     )
     assert dynamics.radial_velocity_km_s[1] == pytest.approx(
         0.0,

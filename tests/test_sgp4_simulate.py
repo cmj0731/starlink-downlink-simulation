@@ -74,6 +74,7 @@ def test_sgp4_simulation_writes_separate_complete_outputs(tmp_path: Path):
     events = frame.loc[frame["event"].notna()].set_index("event")
     assert set(events.index) == {
         "visibility_start",
+        "maximum_elevation",
         "closest_approach",
         "visibility_end",
     }
@@ -85,6 +86,20 @@ def test_sgp4_simulation_writes_separate_complete_outputs(tmp_path: Path):
         10.0,
         abs=1e-7,
     )
+    assert bool(events.loc["visibility_start", "visible"])
+    assert bool(events.loc["visibility_end", "visible"])
+    assert events.loc[
+        "maximum_elevation", "elevation_deg"
+    ] >= events.loc["closest_approach", "elevation_deg"]
+    assert events.loc[
+        "closest_approach", "slant_range_km"
+    ] <= events.loc["maximum_elevation", "slant_range_km"]
+    assert frame["satellite_geodetic_latitude_deg"].equals(
+        frame["satellite_latitude_deg"]
+    )
+    assert (
+        frame["ground_station_geodetic_latitude_deg"] == 37.2934
+    ).all()
     assert events.loc[
         "closest_approach", "radial_velocity_km_s"
     ] == pytest.approx(0.0, abs=1e-7)
@@ -97,6 +112,21 @@ def test_sgp4_simulation_writes_separate_complete_outputs(tmp_path: Path):
         85.164,
         abs=0.01,
     )
+    maximum_elevation_utc = datetime.fromisoformat(
+        summary["selected_pass"]["maximum_elevation_utc"].replace(
+            "Z", "+00:00"
+        )
+    )
+    start_utc = datetime.fromisoformat(
+        summary["selected_pass"]["start_utc"].replace("Z", "+00:00")
+    )
+    end_utc = datetime.fromisoformat(
+        summary["selected_pass"]["end_utc"].replace("Z", "+00:00")
+    )
+    assert start_utc <= maximum_elevation_utc <= end_utc
+    assert summary["visible_extrema"][
+        "maximum_absolute_doppler_hz"
+    ] == pytest.approx(223_101.95, abs=1.0)
 
     for path in (
         artifacts.orbit_3d_png,

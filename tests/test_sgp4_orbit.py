@@ -7,6 +7,7 @@ import pytest
 
 from starlink_isl.sgp4_orbit import (
     GroundStation,
+    ecef_to_geodetic,
     geodetic_to_ecef,
     parse_omm_epoch,
     propagate_ecef,
@@ -79,10 +80,15 @@ def test_wgs84_equator_and_skku_coordinates():
         [-3055.627349, 4058.682029, 3843.347761],
         abs=1e-6,
     )
+    longitude, latitude, altitude = ecef_to_geodetic(
+        np.stack((equator, skku))
+    )
+    assert longitude == pytest.approx([0.0, 126.9747], abs=1e-9)
+    assert latitude == pytest.approx([0.0, 37.2934], abs=1e-9)
+    assert altitude == pytest.approx([0.0, 0.0], abs=1e-8)
 
 
 def test_naive_datetime_is_rejected(omm_record):
     satellite = satrec_from_omm(omm_record)
     with pytest.raises(ValueError, match="timezone-aware"):
         propagate_teme(satellite, [datetime(2026, 7, 29)])
-

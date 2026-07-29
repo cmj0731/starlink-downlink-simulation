@@ -31,6 +31,8 @@ from starlink_isl.sgp4_orbit import (
 
 FloatArray = NDArray[np.float64]
 MEAN_EARTH_RADIUS_KM = 6_371.0088
+# Numerical guard only: 1e-7 degree is about 1 cm along Earth's surface.
+VISIBILITY_ELEVATION_TOLERANCE_DEG = 1e-7
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +41,7 @@ class ActualPass:
 
     start_utc: datetime
     closest_approach_utc: datetime
+    maximum_elevation_utc: datetime
     end_utc: datetime
     duration_s: float
     maximum_elevation_deg: float
@@ -109,7 +112,10 @@ def geometry_from_ecef_states(
         surface_distance_km=MEAN_EARTH_RADIUS_KM * central_angle,
         azimuth_deg=azimuth,
         elevation_deg=elevation,
-        visible=elevation >= minimum_elevation_deg,
+        visible=(
+            elevation
+            >= minimum_elevation_deg - VISIBILITY_ELEVATION_TOLERANCE_DEG
+        ),
     )
 
 
@@ -368,16 +374,42 @@ def find_visibility_passes(
             station,
             minimum_elevation_deg,
         )
+        maximum_elevation_result = minimize_scalar(
+            lambda candidate: -float(
+                _geometry_at_offset(
+                    candidate,
+                    search_start,
+                    satellite,
+                    station,
+                    minimum_elevation_deg,
+                ).elevation_deg.item()
+            ),
+            bounds=(open_start, end_offset),
+            method="bounded",
+            options={"xatol": 1e-6},
+        )
+        maximum_elevation_offset = float(maximum_elevation_result.x)
+        maximum_elevation_geometry = _geometry_at_offset(
+            maximum_elevation_offset,
+            search_start,
+            satellite,
+            station,
+            minimum_elevation_deg,
+        )
         passes.append(
             ActualPass(
                 start_utc=search_start + timedelta(seconds=open_start),
                 closest_approach_utc=(
                     search_start + timedelta(seconds=closest_offset)
                 ),
+                maximum_elevation_utc=(
+                    search_start
+                    + timedelta(seconds=maximum_elevation_offset)
+                ),
                 end_utc=search_start + timedelta(seconds=end_offset),
                 duration_s=end_offset - open_start,
                 maximum_elevation_deg=float(
-                    closest_geometry.elevation_deg.item()
+                    maximum_elevation_geometry.elevation_deg.item()
                 ),
                 minimum_slant_range_km=float(
                     closest_geometry.slant_range_km.item()

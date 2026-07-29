@@ -170,6 +170,20 @@ starlink-simulate `
 결과와 그래프를 같은 디렉터리에 생성합니다. 이상 모델 결과가 있는
 `outputs/ideal_downlink/`는 변경하지 않습니다.
 
+### SGP4 좌표와 거리 필드
+
+SGP4 `ground_track.png`와 `results.csv`의
+`satellite_geodetic_longitude_deg`,
+`satellite_geodetic_latitude_deg`,
+`satellite_geodetic_altitude_km`는 모두 WGS-84 측지 좌표이다. 지상국도
+동일한 측지 위도·경도 기준으로 표시한다. 하위 호환성을 위한
+`satellite_longitude_deg`와 `satellite_latitude_deg` 별칭 역시 SGP4
+결과에서는 같은 측지 좌표를 담는다.
+
+`surface_distance_km`는 두 ECEF 위치벡터의 지심각에 평균 지구 반지름
+6,371.0088 km를 곱한 **spherical central-angle approximation**이다.
+WGS-84 타원체상의 정밀 측지선 거리가 아니다.
+
 ## 테스트
 
 ```powershell
