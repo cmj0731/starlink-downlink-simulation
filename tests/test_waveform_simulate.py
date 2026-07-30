@@ -28,7 +28,7 @@ def test_waveform_simulation_writes_deterministic_outputs(tmp_path: Path):
             "propagation_delay_ms": [6.30, 1.93, 6.25],
             "doppler_shift_hz": [222_954.0, 0.0, -223_102.0],
             "snr_db": [6.0, 12.0, 6.0],
-            "carrier_to_noise_density_db_hz": [66.0, 72.0, 66.0],
+            "carrier_to_noise_density_db_hz": [104.0, 114.0, 104.0],
         }
     ).to_csv(geometry_csv, index=False)
     geometry_summary.write_text(
@@ -50,6 +50,7 @@ def test_waveform_simulation_writes_deterministic_outputs(tmp_path: Path):
         artifacts.summary_json,
         artifacts.ber_evm_png,
         artifacts.constellation_png,
+        artifacts.doppler_estimation_png,
     ):
         assert path.is_file()
         assert path.stat().st_size > 100
@@ -61,12 +62,14 @@ def test_waveform_simulation_writes_deterministic_outputs(tmp_path: Path):
         "visibility_end",
     }
     closest = results.loc[results["event"] == "closest_approach"].iloc[0]
-    assert closest["ber_uncompensated"] == closest["ber_compensated"]
+    assert closest["ber_pilot_compensated"] <= closest["ber_uncompensated"]
     assert results["ber_compensated"].max() < 0.03
     assert results["ber_uncompensated"].max() > 0.4
-    assert results["es_n0_db"].tolist() == [6.0, 12.0, 6.0]
+    assert results["ber_pilot_compensated"].max() < 0.03
+    assert results["es_n0_db"].tolist() == [44.0, 54.0, 44.0]
 
     summary = json.loads(artifacts.summary_json.read_text(encoding="utf-8"))
     assert summary["source_object_name"] == "STARLINK-5285"
     assert summary["snapshot_count"] == 3
+    assert summary["pilot_symbol_count"] == 256
     assert summary["extrema"]["maximum_absolute_doppler_hz"] == 223_102.0

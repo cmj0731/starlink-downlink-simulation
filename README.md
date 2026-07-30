@@ -194,14 +194,17 @@ starlink-waveform `
   --geometry-results outputs/sgp4_downlink/results.csv `
   --geometry-summary outputs/sgp4_downlink/summary.json `
   --symbol-rate-msps 1 `
+  --pilot-symbol-count 256 `
   --symbol-count 8192
 ```
 
 결과는 기본적으로 `outputs/qpsk_downlink/`에 저장된다. 각 패스 시각을
-국소적으로 정지한 채 Gray-coded QPSK 심볼에 복소 AWGN과 도플러 회전을
-적용하고, 무보상 수신기와 완벽한 도플러 보상 기준 수신기의 BER·EVM을
-비교한다. 심볼 SNR인 \(E_s/N_0\)는 기존 링크 버짓의 \(C/N_0\)와 설정한
-심볼률로부터 계산한다. 절대 전파 지연은 완벽한 타이밍 동기화로 정렬되었다고 가정하며,
+국소적으로 정지한 채 알려진 QPSK 파일럿과 데이터 심볼에 복소 AWGN 및
+도플러 회전을 적용한다. 파일럿의 연속 위상차로 도플러를 추정하고 공통
+위상까지 보상한 수신기를 무보상·완벽 보상 기준과 비교한다. 기본값은
+파일럿 256심볼과 데이터 8,192심볼로, 파일럿 오버헤드는 약 3.03%이다.
+심볼 SNR인 \(E_s/N_0\)는 기존 링크 버짓의 \(C/N_0\)와 설정한 심볼률로부터
+계산한다. 절대 전파 지연은 완벽한 타이밍 동기화로 정렬되었다고 가정하며,
 아직 채널 코딩, 펄스 성형, 다중경로, 페이딩 및 발진기 오차는 포함하지
 않는다.
 

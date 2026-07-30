@@ -43,11 +43,14 @@ from starlink_isl.sgp4_orbit import (
     satrec_from_omm,
 )
 from starlink_isl.qpsk import (
+    PilotQPSKSnapshot,
     QPSKSnapshot,
     error_vector_magnitude_percent,
+    estimate_pilot_frequency_and_phase,
     qpsk_demodulate,
     qpsk_modulate,
     simulate_qpsk_snapshot,
+    simulate_pilot_aided_qpsk_snapshot,
     theoretical_qpsk_ber_awgn,
 )
 
@@ -61,6 +64,7 @@ __all__ = [
     "KinematicState",
     "LinkBudgetConfig",
     "LinkBudgetResult",
+    "PilotQPSKSnapshot",
     "QPSKSnapshot",
     "GroundStation",
     "SGP4PropagationError",
@@ -72,6 +76,7 @@ __all__ = [
     "downlink_dynamics",
     "downlink_geometry",
     "error_vector_magnitude_percent",
+    "estimate_pilot_frequency_and_phase",
     "equivalent_receiver_noise_temperature_k",
     "free_space_path_loss_db",
     "find_visibility_passes",
@@ -86,6 +91,7 @@ __all__ = [
     "satellite_state",
     "satrec_from_omm",
     "simulate_qpsk_snapshot",
+    "simulate_pilot_aided_qpsk_snapshot",
     "system_noise_temperature_k",
     "thermal_noise_power_dbw",
     "theoretical_qpsk_ber_awgn",
