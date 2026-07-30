@@ -42,6 +42,14 @@ from starlink_isl.sgp4_orbit import (
     propagate_teme,
     satrec_from_omm,
 )
+from starlink_isl.qpsk import (
+    QPSKSnapshot,
+    error_vector_magnitude_percent,
+    qpsk_demodulate,
+    qpsk_modulate,
+    simulate_qpsk_snapshot,
+    theoretical_qpsk_ber_awgn,
+)
 
 __version__ = "0.1.0"
 
@@ -53,6 +61,7 @@ __all__ = [
     "KinematicState",
     "LinkBudgetConfig",
     "LinkBudgetResult",
+    "QPSKSnapshot",
     "GroundStation",
     "SGP4PropagationError",
     "ecef_to_geodetic",
@@ -62,6 +71,7 @@ __all__ = [
     "VisibilityWindow",
     "downlink_dynamics",
     "downlink_geometry",
+    "error_vector_magnitude_percent",
     "equivalent_receiver_noise_temperature_k",
     "free_space_path_loss_db",
     "find_visibility_passes",
@@ -71,9 +81,13 @@ __all__ = [
     "link_budget",
     "propagate_ecef",
     "propagate_teme",
+    "qpsk_demodulate",
+    "qpsk_modulate",
     "satellite_state",
     "satrec_from_omm",
+    "simulate_qpsk_snapshot",
     "system_noise_temperature_k",
     "thermal_noise_power_dbw",
+    "theoretical_qpsk_ber_awgn",
     "visibility_window",
 ]

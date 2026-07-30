@@ -184,6 +184,27 @@ SGP4 `ground_track.png`와 `results.csv`의
 6,371.0088 km를 곱한 **spherical central-angle approximation**이다.
 WGS-84 타원체상의 정밀 측지선 거리가 아니다.
 
+### QPSK 파형·AWGN·도플러 기준선
+
+SGP4 패스 산출물을 만든 뒤 다음 명령으로 단일 반송파 QPSK 수신 성능을
+계산할 수 있다.
+
+```powershell
+starlink-waveform `
+  --geometry-results outputs/sgp4_downlink/results.csv `
+  --geometry-summary outputs/sgp4_downlink/summary.json `
+  --symbol-rate-msps 1 `
+  --symbol-count 8192
+```
+
+결과는 기본적으로 `outputs/qpsk_downlink/`에 저장된다. 각 패스 시각을
+국소적으로 정지한 채 Gray-coded QPSK 심볼에 복소 AWGN과 도플러 회전을
+적용하고, 무보상 수신기와 완벽한 도플러 보상 기준 수신기의 BER·EVM을
+비교한다. 심볼 SNR인 \(E_s/N_0\)는 기존 링크 버짓의 \(C/N_0\)와 설정한
+심볼률로부터 계산한다. 절대 전파 지연은 완벽한 타이밍 동기화로 정렬되었다고 가정하며,
+아직 채널 코딩, 펄스 성형, 다중경로, 페이딩 및 발진기 오차는 포함하지
+않는다.
+
 ## 테스트
 
 ```powershell
