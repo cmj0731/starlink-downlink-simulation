@@ -5,6 +5,11 @@ from starlink_isl.actual_downlink import (
     find_visibility_passes,
     geometry_from_ecef_states,
 )
+from starlink_isl.cfo_compensation import (
+    CFOCompensationResult,
+    compensate_cfo,
+    compensate_siso_channel_doppler,
+)
 from starlink_isl.downlink_dynamics import (
     SPEED_OF_LIGHT_KM_S,
     DownlinkDynamics,
@@ -69,6 +74,7 @@ __version__ = "0.1.0"
 
 __all__ = [
     "ActualPass",
+    "CFOCompensationResult",
     "DownlinkDynamics",
     "DownlinkGeometry",
     "DownlinkStateSI",
@@ -87,6 +93,8 @@ __all__ = [
     "REFERENCE_NOISE_TEMPERATURE_K",
     "SPEED_OF_LIGHT_KM_S",
     "VisibilityWindow",
+    "compensate_cfo",
+    "compensate_siso_channel_doppler",
     "downlink_dynamics",
     "downlink_geometry",
     "downlink_state_si",

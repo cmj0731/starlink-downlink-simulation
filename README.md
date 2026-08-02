@@ -174,6 +174,34 @@ Doppler 위상은 모든 파형 샘플에서 증가시킨다. OFDM 연결 시 �
 샘플 이동은 하지 않는다. 따라서 현재 수신 신호는 완벽한 타이밍 동기화로
 정렬된 기준선이다.
 
+## 파형 독립 CFO·Doppler 보상
+
+CFO는 수신기가 예상한 반송파와 실제 수신 반송파 사이의 주파수 차이다.
+위성 Doppler와 발진기 오차가 주요 원인이며, 복소 기저대역 신호의 위상을
+샘플마다 계속 회전시킨다. `compensate_cfo`는 변조 방식과 관계없이 추정한
+CFO와 초기 위상의 반대 회전을 적용한다.
+
+```python
+from starlink_isl import compensate_siso_channel_doppler
+
+# 채널의 실제 Doppler를 사용하는 완벽한 기준선
+perfect = compensate_siso_channel_doppler(result)
+
+# 실제값보다 300 Hz 작게 추정한 경우: +300 Hz residual CFO
+imperfect = compensate_siso_channel_doppler(
+    result,
+    estimated_doppler_hz=result.doppler_shift_hz - 300.0,
+)
+
+print(perfect.residual_cfo_hz)    # 0.0
+print(imperfect.residual_cfo_hz)  # 300.0
+```
+
+보상기는 위상과 주파수만 교정한다. 경로손실로 줄어든 진폭과 AWGN은 그대로
+남는다. 현재 구현은 완벽한 보상 및 외부 추정값 보상을 제공한다. SGP4 예측값
+또는 이후 pilot 추정값을 같은 입력 필드에 전달할 수 있으며, pilot 생성·배치와
+OFDM 처리는 이 모듈에 포함하지 않는다.
+
 ## 전파 지연과 도플러
 
 ```python

@@ -385,3 +385,45 @@ E\{|w[n]|^2\}=kT_{\rm sys}B
 - OFDM 통합 시 채널 상태를 심볼당 한 번 갱신할 수 있다.
 - 절대 전파 지연은 반환하지만 신호 샘플을 이동시키지 않는다.
 - 반환 신호와 잡음의 복소 포락선 단위는 `sqrt(W)`이다.
+
+## 14. CFO와 Doppler 보상
+
+수신 신호의 실제 주파수 오프셋과 초기 위상을 각각
+\(\Delta f\), \(\phi_0\)라고 하면 CFO가 포함된 신호는
+
+\[
+r[n]=s[n]\exp\left(
+j\left[\phi_0+2\pi\Delta f\frac{n}{f_s}\right]
+\right)
+\]
+
+로 쓸 수 있다. 보상기는 추정값 \(\hat{\Delta f}\), \(\hat\phi_0\)를
+사용해
+
+\[
+\hat s[n]=r[n]\exp\left(
+-j\left[\hat\phi_0+2\pi\hat{\Delta f}\frac{n}{f_s}\right]
+\right)
+\]
+
+를 계산한다. 보상 후 남는 잔류 CFO와 초기 위상은
+
+\[
+\Delta f_{\rm residual}=\Delta f-\hat{\Delta f}
+\]
+
+\[
+\phi_{\rm residual}=\phi_0-\hat\phi_0
+\]
+
+로 정의한다. 현재 수신기 기준선은 다음을 구분한다.
+
+1. 완벽한 보상: 채널이 사용한 실제 Doppler와 위상을 그대로 사용한다.
+2. 궤도 예측 보상: SGP4 또는 궤도 모델의 예측값을 외부에서 전달한다.
+3. Pilot 추정 보상: 이후 OFDM 모듈이 제공하는 pilot에서 얻은 추정값을
+   전달한다.
+
+`compensate_cfo`와 `compensate_siso_channel_doppler`는 첫 두 경우와 이후
+pilot 추정값의 적용 경로를 제공한다. 보상 연산은 단위 크기의 복소 지수만
+곱하므로 신호와 잡음의 평균전력을 바꾸지 않으며, 경로손실에 대한 진폭
+equalization도 수행하지 않는다.

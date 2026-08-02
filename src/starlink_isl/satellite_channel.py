@@ -88,6 +88,7 @@ class SISOChannelResult:
     """
 
     sample_time_s: FloatArray
+    sample_rate_hz: float
     received_signal: ComplexArray
     noiseless_received_signal: ComplexArray
     noise_signal: ComplexArray
@@ -211,6 +212,7 @@ def apply_siso_downlink_channel(
 
     return SISOChannelResult(
         sample_time_s=sample_time_s,
+        sample_rate_hz=config.sample_rate_hz,
         received_signal=noiseless + noise,
         noiseless_received_signal=noiseless,
         noise_signal=noise,
