@@ -53,6 +53,12 @@ from starlink_isl.qpsk import (
     simulate_pilot_aided_qpsk_snapshot,
     theoretical_qpsk_ber_awgn,
 )
+from starlink_isl.si_interface import (
+    DownlinkStateSI,
+    downlink_state_si,
+    ideal_downlink_state_si,
+    sgp4_downlink_state_si,
+)
 
 __version__ = "0.1.0"
 
@@ -60,6 +66,7 @@ __all__ = [
     "ActualPass",
     "DownlinkDynamics",
     "DownlinkGeometry",
+    "DownlinkStateSI",
     "IdealOrbitConfig",
     "KinematicState",
     "LinkBudgetConfig",
@@ -75,6 +82,7 @@ __all__ = [
     "VisibilityWindow",
     "downlink_dynamics",
     "downlink_geometry",
+    "downlink_state_si",
     "error_vector_magnitude_percent",
     "estimate_pilot_frequency_and_phase",
     "equivalent_receiver_noise_temperature_k",
@@ -83,6 +91,7 @@ __all__ = [
     "geodetic_to_ecef",
     "geometry_from_ecef_states",
     "ground_station_state",
+    "ideal_downlink_state_si",
     "link_budget",
     "propagate_ecef",
     "propagate_teme",
@@ -92,6 +101,7 @@ __all__ = [
     "satrec_from_omm",
     "simulate_qpsk_snapshot",
     "simulate_pilot_aided_qpsk_snapshot",
+    "sgp4_downlink_state_si",
     "system_noise_temperature_k",
     "thermal_noise_power_dbw",
     "theoretical_qpsk_ber_awgn",

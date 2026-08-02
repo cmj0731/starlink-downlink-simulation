@@ -174,7 +174,7 @@ u(t)=u_0+nt
 
 ## 7. Downlink 기하량
 
-위성에서 지상국으로 향하는 상대 위치벡터와 경사거리는
+지상국에서 위성으로 향하는 기존 분석용 상대 위치벡터와 경사거리는
 
 \[
 \boldsymbol\rho(t)=\mathbf r_s(t)-\mathbf r_g(t)
@@ -185,6 +185,14 @@ u(t)=u_0+nt
 \]
 
 이다. 실제 전파는 이 경사거리만큼 이동한다.
+
+팀 통합 인터페이스에서 사용하는 LOS는 전파의 진행 방향과 맞추어 반대
+방향으로 정의한다.
+
+\[
+\hat{\boldsymbol\ell}_{s\rightarrow g}(t)=
+\frac{\mathbf r_g(t)-\mathbf r_s(t)}{\rho(t)}
+\]
 
 위성과 지상국의 지구중심각은
 
@@ -304,3 +312,40 @@ L_{\rm FSPL}(t)=
 5. \(t=0\)의 경사거리는 `572 km`이고 앙각은 `90 deg`이다.
 6. 위성은 한 궤도주기 후 ECI상의 초기 위치로 돌아온다.
 7. 지구 자전을 끈 특수조건에서는 기존 정적 구면지구 해석 결과를 재현한다.
+
+## 12. 팀 통합용 SI 인터페이스
+
+기존 분석 모델의 내부 단위와 CSV 필드는 결과 재현성과 하위 호환성을 위해
+`km`, `km/s`, `deg`를 유지한다. 송수신·채널·빔포밍 코드와 연결할 때는
+`DownlinkStateSI`를 사용하며 다음 규칙을 적용한다.
+
+- 위치와 거리: m
+- 속도와 radial velocity: m/s
+- 시간: 시뮬레이션 시작 기준 s
+- 방위각과 고도각: rad
+- radial velocity: 거리가 증가하면 양수, 접근하면 음수
+- LOS: 위성에서 UE로 향하는 정규화 단위벡터
+- 위치·속도·LOS 배열: `(sample_count, 3)`
+- 향후 안테나 신호 배열: `(antenna_count, sample_count)`
+
+공통 필드는 다음과 같다.
+
+| 필드 | 의미 |
+|---|---|
+| `time_s` | 시뮬레이션 기준 시간 |
+| `satellite_position_m` | 위성 위치 |
+| `satellite_velocity_m_s` | 위성 속도 |
+| `ue_position_m` | 지상 UE 위치 |
+| `ue_velocity_m_s` | 지상 UE 속도 |
+| `los_satellite_to_ue_unit` | 위성→UE LOS 단위벡터 |
+| `slant_range_m` | 3차원 경사거리 |
+| `azimuth_rad`, `elevation_rad` | UE에서 본 방위각과 고도각 |
+| `radial_velocity_m_s` | 거리 변화율 |
+| `propagation_delay_s` | 절대 전파 지연 |
+| `doppler_shift_hz` | 1차 Doppler 편이 |
+| `doppler_phase_rad` | 기준 시각 대비 Doppler 위상 |
+
+이상 궤도 생성자는 ECI, SGP4 생성자는 ECEF 상태를 반환한다. 두 경우 모두
+`coordinate_frame`에 좌표계를 명시하므로 서로 다른 프레임의 위치벡터를
+직접 혼합하지 않는다. 거리, radial velocity, LOS, 방위각과 고도각은 동일한
+물리적 규칙을 따른다.

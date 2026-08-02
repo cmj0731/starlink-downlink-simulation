@@ -91,6 +91,46 @@ print(geometry.elevation_deg)
 지상국 사이의 3차원 경사거리를 사용합니다. 방위각은 북쪽 기준 시계방향이며,
 정확한 천정에서는 방향이 정의되지 않으므로 `NaN`을 반환합니다.
 
+## 팀 통합용 SI 인터페이스
+
+기존 분석 API와 CSV의 `km`, `km/s`, `deg` 필드는 하위 호환성을 위해
+유지한다. OFDM·채널·빔포밍 모듈을 연결할 때는 `DownlinkStateSI`를 사용한다.
+
+```python
+import numpy as np
+
+from starlink_isl import ideal_downlink_state_si
+
+state = ideal_downlink_state_si(
+    np.arange(0.0, 11.0),
+    carrier_frequency_hz=10.0e9,
+    minimum_elevation_rad=np.deg2rad(10.0),
+)
+
+print(state.satellite_position_m.shape)       # (sample_count, 3)
+print(state.los_satellite_to_ue_unit.shape)   # (sample_count, 3)
+print(state.slant_range_m)
+print(state.elevation_rad)
+```
+
+공통 규칙은 다음과 같다.
+
+| 항목 | 규칙 |
+|---|---|
+| 위치·거리 | m |
+| 속도·radial velocity | m/s |
+| 시간 | 시뮬레이션 기준 s |
+| 각도 | rad |
+| radial velocity 부호 | 멀어지면 `+`, 접근하면 `-` |
+| LOS | 위성에서 UE로 향하는 단위벡터 |
+| 위치·속도·LOS 형상 | `(sample_count, 3)` |
+| 향후 안테나 신호 형상 | `(antenna_count, sample_count)` |
+
+`ideal_downlink_state_si`는 ECI 좌표를, `sgp4_downlink_state_si`는 ECEF
+좌표를 반환하며 `coordinate_frame` 필드로 이를 명시한다. 방위각은 지상국의
+북쪽에서 동쪽으로 증가한다. 천정에서는 방위각이 정의되지 않으므로 `NaN`이다.
+SGP4 인터페이스의 `time_s`는 기본적으로 첫 입력 UTC를 정확히 `0 s`로 둔다.
+
 ## 전파 지연과 도플러
 
 ```python
@@ -169,6 +209,19 @@ starlink-simulate `
 `outputs/sgp4_downlink/passes.csv`에 기록하고, 최대 앙각 패스의 상세
 결과와 그래프를 같은 디렉터리에 생성합니다. 이상 모델 결과가 있는
 `outputs/ideal_downlink/`는 변경하지 않습니다.
+
+프로그램 간 연결에는 동일한 SI 인터페이스를 사용할 수 있다.
+
+```python
+from starlink_isl import sgp4_downlink_state_si
+
+state = sgp4_downlink_state_si(
+    datetimes,
+    satellite,
+    carrier_frequency_hz=10.0e9,
+    minimum_elevation_rad=np.deg2rad(10.0),
+)
+```
 
 ### SGP4 좌표와 거리 필드
 
