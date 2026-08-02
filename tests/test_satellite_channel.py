@@ -4,6 +4,7 @@ import pytest
 from starlink_isl import (
     SISOChannelConfig,
     apply_siso_downlink_channel,
+    apply_siso_downlink_sequence,
     ideal_downlink_state_si,
 )
 from starlink_isl.link_budget import BOLTZMANN_J_K, free_space_path_loss_db
@@ -210,3 +211,130 @@ def test_siso_channel_config_rejects_invalid_values(kwargs, message):
 
     with pytest.raises(ValueError, match=message):
         SISOChannelConfig(**values)
+
+
+def test_sequence_updates_each_block_and_keeps_phase_continuous():
+    state_times_s = np.array([-10.0, 0.0, 10.0])
+    sample_rate_hz = 1_000.0
+    state = ideal_downlink_state_si(state_times_s, CARRIER_FREQUENCY_HZ)
+    boundaries = np.array([0, 10_000, 20_000, 30_000])
+    transmitted = np.ones((1, boundaries[-1]), dtype=np.complex128)
+    config = SISOChannelConfig(
+        carrier_frequency_hz=CARRIER_FREQUENCY_HZ,
+        sample_rate_hz=sample_rate_hz,
+        add_awgn=False,
+    )
+
+    result = apply_siso_downlink_sequence(
+        transmitted,
+        state,
+        config,
+        block_boundaries=boundaries,
+        state_indices=[0, 1, 2],
+    )
+
+    assert result.block_count == 3
+    assert result.sample_count == transmitted.shape[1]
+    assert result.block_start_time_s == pytest.approx(state_times_s)
+    assert result.sample_time_s[[0, 10_000, 20_000]] == pytest.approx(
+        state_times_s
+    )
+    assert result.path_amplitude_gain[1] > result.path_amplitude_gain[0]
+    assert result.path_amplitude_gain[1] > result.path_amplitude_gain[2]
+    for block_index, start in enumerate(boundaries[1:-1], start=1):
+        previous_step = (
+            2.0
+            * np.pi
+            * result.doppler_shift_hz[block_index - 1]
+            / sample_rate_hz
+        )
+        next_step = (
+            2.0
+            * np.pi
+            * result.doppler_shift_hz[block_index]
+            / sample_rate_hz
+        )
+        assert result.doppler_phase_rad[start] - result.doppler_phase_rad[
+            start - 1
+        ] == pytest.approx(previous_step, abs=1e-6)
+        assert result.doppler_phase_rad[start + 1] - result.doppler_phase_rad[
+            start
+        ] == pytest.approx(next_step, abs=1e-6)
+
+
+def test_sequence_uses_one_nonrepeating_deterministic_noise_stream():
+    state = ideal_downlink_state_si([0.0, 0.001], CARRIER_FREQUENCY_HZ)
+    transmitted = np.zeros((1, 2_000), dtype=np.complex128)
+    config = SISOChannelConfig(
+        carrier_frequency_hz=CARRIER_FREQUENCY_HZ,
+        sample_rate_hz=SAMPLE_RATE_HZ,
+        transmit_power_w=0.0,
+        random_seed=123,
+    )
+    kwargs = {
+        "block_boundaries": [0, 1_000, 2_000],
+        "state_indices": [0, 1],
+    }
+
+    first = apply_siso_downlink_sequence(
+        transmitted,
+        state,
+        config,
+        **kwargs,
+    )
+    second = apply_siso_downlink_sequence(
+        transmitted,
+        state,
+        config,
+        **kwargs,
+    )
+
+    assert first.noise_signal == pytest.approx(second.noise_signal)
+    assert not np.array_equal(
+        first.noise_signal[:, :1_000],
+        first.noise_signal[:, 1_000:],
+    )
+
+
+def test_sequence_rejects_state_times_that_do_not_match_block_starts():
+    state = ideal_downlink_state_si([0.0, 1.0], CARRIER_FREQUENCY_HZ)
+    config = SISOChannelConfig(
+        carrier_frequency_hz=CARRIER_FREQUENCY_HZ,
+        sample_rate_hz=SAMPLE_RATE_HZ,
+    )
+
+    with pytest.raises(ValueError, match="state times"):
+        apply_siso_downlink_sequence(
+            np.ones((1, 2_000), dtype=np.complex128),
+            state,
+            config,
+            block_boundaries=[0, 1_000, 2_000],
+            state_indices=[0, 1],
+        )
+
+
+@pytest.mark.parametrize(
+    "boundaries, indices, error",
+    [
+        ([1, 8], [0], ValueError),
+        ([0, 4, 3, 8], [0, 0, 0], ValueError),
+        ([0, 4, 8], [0], ValueError),
+        ([0.0, 8.0], [0], TypeError),
+        ([0, 8], [1], IndexError),
+    ],
+)
+def test_sequence_rejects_invalid_block_layout(boundaries, indices, error):
+    state = ideal_downlink_state_si(0.0, CARRIER_FREQUENCY_HZ)
+    config = SISOChannelConfig(
+        carrier_frequency_hz=CARRIER_FREQUENCY_HZ,
+        sample_rate_hz=SAMPLE_RATE_HZ,
+    )
+
+    with pytest.raises(error):
+        apply_siso_downlink_sequence(
+            np.ones((1, 8), dtype=np.complex128),
+            state,
+            config,
+            block_boundaries=boundaries,
+            state_indices=indices,
+        )

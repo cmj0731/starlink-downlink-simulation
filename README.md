@@ -174,6 +174,34 @@ Doppler 위상은 모든 파형 샘플에서 증가시킨다. OFDM 연결 시 �
 샘플 이동은 하지 않는다. 따라서 현재 수신 신호는 완벽한 타이밍 동기화로
 정렬된 기준선이다.
 
+긴 연속 파형에서는 `apply_siso_downlink_sequence`로 샘플을 여러 채널
+블록으로 나눌 수 있다. 블록은 OFDM 심벌을 뜻하지 않고 거리·경로손실·
+Doppler를 갱신하는 계산 단위다. 블록 내부에서는 이 값들이 일정하고,
+Doppler 위상은 블록 경계에서도 초기화되지 않고 연속으로 이어진다.
+
+```python
+from starlink_isl import apply_siso_downlink_sequence
+
+state = ideal_downlink_state_si(
+    [0.0, 0.001, 0.002],
+    carrier_frequency_hz=10.0e9,
+)
+tx_signal = np.ones((1, 3000), dtype=np.complex128)
+sequence = apply_siso_downlink_sequence(
+    tx_signal,
+    state,
+    config,
+    block_boundaries=[0, 1000, 2000, 3000],
+    state_indices=[0, 1, 2],
+)
+```
+
+`block_boundaries`는 전체 파형을 나누는 샘플 인덱스이고 각
+`state_indices`는 해당 블록 시작 시각의 기하 상태를 고른다. 선택한 상태
+시각은 `첫 상태 시각 + 블록 시작 인덱스 / sample_rate_hz`와 일치해야 한다.
+전체 신호에 하나의 AWGN 난수열을 사용하므로 블록마다 같은 잡음이 반복되지
+않는다.
+
 ## 파형 독립 CFO·Doppler 보상
 
 CFO는 수신기가 예상한 반송파와 실제 수신 반송파 사이의 주파수 차이다.
@@ -201,6 +229,12 @@ print(imperfect.residual_cfo_hz)  # 300.0
 남는다. 현재 구현은 완벽한 보상 및 외부 추정값 보상을 제공한다. SGP4 예측값
 또는 이후 pilot 추정값을 같은 입력 필드에 전달할 수 있으며, pilot 생성·배치와
 OFDM 처리는 이 모듈에 포함하지 않는다.
+
+다중 블록 결과에는 `compensate_siso_channel_sequence_doppler`를 사용한다.
+추정값을 생략하면 완벽한 기준 보상이 되고, 스칼라 또는 블록별 배열을
+전달하면 추정 오차가 있는 경우를 계산한다. 보상기의 위상도 블록 경계에서
+초기화되지 않으므로 앞 블록에서 생긴 잔류 주파수 오차가 자연스럽게
+누적된다.
 
 ## 전파 지연과 도플러
 

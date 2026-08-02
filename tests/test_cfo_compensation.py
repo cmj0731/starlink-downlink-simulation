@@ -4,8 +4,10 @@ import pytest
 from starlink_isl import (
     SISOChannelConfig,
     apply_siso_downlink_channel,
+    apply_siso_downlink_sequence,
     compensate_cfo,
     compensate_siso_channel_doppler,
+    compensate_siso_channel_sequence_doppler,
     ideal_downlink_state_si,
 )
 
@@ -180,4 +182,106 @@ def test_compensator_rejects_invalid_parameters(
             sample_rate_hz,
             cfo_hz,
             estimated_initial_phase_rad=phase_rad,
+        )
+
+
+def _three_block_channel(add_awgn=False):
+    state_times_s = np.array([-0.002, 0.0, 0.002])
+    state = ideal_downlink_state_si(state_times_s, CARRIER_FREQUENCY_HZ)
+    transmitted = np.exp(
+        1j * np.linspace(0.0, 1.0, 6_000, dtype=np.float64)
+    )[None, :]
+    config = SISOChannelConfig(
+        carrier_frequency_hz=CARRIER_FREQUENCY_HZ,
+        sample_rate_hz=SAMPLE_RATE_HZ,
+        transmit_power_w=4.0,
+        add_awgn=add_awgn,
+        random_seed=987,
+    )
+    channel = apply_siso_downlink_sequence(
+        transmitted,
+        state,
+        config,
+        block_boundaries=[0, 2_000, 4_000, 6_000],
+        state_indices=[0, 1, 2],
+    )
+    return transmitted, channel
+
+
+def test_perfect_sequence_compensation_removes_phase_in_every_block():
+    transmitted, channel = _three_block_channel()
+
+    compensation = compensate_siso_channel_sequence_doppler(channel)
+    expected = np.empty_like(transmitted)
+    for block_index in range(channel.block_count):
+        start = channel.block_boundaries[block_index]
+        stop = channel.block_boundaries[block_index + 1]
+        expected[:, start:stop] = (
+            2.0 * channel.path_amplitude_gain[block_index] * transmitted[:, start:stop]
+        )
+
+    assert compensation.compensated_signal == pytest.approx(
+        expected,
+        abs=1e-18,
+    )
+    assert compensation.residual_cfo_hz == pytest.approx(np.zeros(3))
+    assert compensation.residual_block_initial_phase_rad == pytest.approx(
+        np.zeros(3)
+    )
+
+
+def test_sequence_compensation_reports_per_block_residual_slopes():
+    transmitted, channel = _three_block_channel()
+    residual_hz = np.array([100.0, -200.0, 300.0])
+    estimates = channel.doppler_shift_hz - residual_hz
+
+    compensation = compensate_siso_channel_sequence_doppler(
+        channel,
+        estimated_doppler_hz=estimates,
+    )
+    normalized = compensation.compensated_signal.copy()
+    for block_index in range(channel.block_count):
+        start = channel.block_boundaries[block_index]
+        stop = channel.block_boundaries[block_index + 1]
+        normalized[:, start:stop] /= (
+            2.0 * channel.path_amplitude_gain[block_index] * transmitted[:, start:stop]
+        )
+        measured_step = np.angle(
+            normalized[0, start + 1 : stop]
+            * np.conj(normalized[0, start : stop - 1])
+        )
+        assert measured_step == pytest.approx(
+            2.0 * np.pi * residual_hz[block_index] / SAMPLE_RATE_HZ,
+            abs=1e-11,
+        )
+
+    assert compensation.residual_cfo_hz == pytest.approx(residual_hz)
+    expected_boundary_residual_rad = np.array(
+        [
+            0.0,
+            2.0 * np.pi * residual_hz[0] * 2_000 / SAMPLE_RATE_HZ,
+            2.0
+            * np.pi
+            * (residual_hz[0] + residual_hz[1])
+            * 2_000
+            / SAMPLE_RATE_HZ,
+        ]
+    )
+    assert compensation.residual_block_initial_phase_rad == pytest.approx(
+        expected_boundary_residual_rad,
+        abs=1e-11,
+    )
+    assert compensation.output_average_power_w == pytest.approx(
+        compensation.input_average_power_w,
+        rel=1e-14,
+    )
+
+
+def test_sequence_compensation_rejects_wrong_estimate_count():
+    _, channel = _three_block_channel()
+
+    with pytest.raises(ValueError, match="shape"):
+        compensate_siso_channel_sequence_doppler(
+            channel,
+            estimated_doppler_hz=[1.0, 2.0],
         )

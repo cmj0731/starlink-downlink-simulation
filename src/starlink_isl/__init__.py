@@ -7,8 +7,10 @@ from starlink_isl.actual_downlink import (
 )
 from starlink_isl.cfo_compensation import (
     CFOCompensationResult,
+    CFOSequenceCompensationResult,
     compensate_cfo,
     compensate_siso_channel_doppler,
+    compensate_siso_channel_sequence_doppler,
 )
 from starlink_isl.downlink_dynamics import (
     SPEED_OF_LIGHT_KM_S,
@@ -67,7 +69,9 @@ from starlink_isl.si_interface import (
 from starlink_isl.satellite_channel import (
     SISOChannelConfig,
     SISOChannelResult,
+    SISOChannelSequenceResult,
     apply_siso_downlink_channel,
+    apply_siso_downlink_sequence,
 )
 
 __version__ = "0.1.0"
@@ -75,6 +79,7 @@ __version__ = "0.1.0"
 __all__ = [
     "ActualPass",
     "CFOCompensationResult",
+    "CFOSequenceCompensationResult",
     "DownlinkDynamics",
     "DownlinkGeometry",
     "DownlinkStateSI",
@@ -88,6 +93,7 @@ __all__ = [
     "SGP4PropagationError",
     "SISOChannelConfig",
     "SISOChannelResult",
+    "SISOChannelSequenceResult",
     "ecef_to_geodetic",
     "BOLTZMANN_J_K",
     "REFERENCE_NOISE_TEMPERATURE_K",
@@ -95,10 +101,12 @@ __all__ = [
     "VisibilityWindow",
     "compensate_cfo",
     "compensate_siso_channel_doppler",
+    "compensate_siso_channel_sequence_doppler",
     "downlink_dynamics",
     "downlink_geometry",
     "downlink_state_si",
     "apply_siso_downlink_channel",
+    "apply_siso_downlink_sequence",
     "error_vector_magnitude_percent",
     "estimate_pilot_frequency_and_phase",
     "equivalent_receiver_noise_temperature_k",
