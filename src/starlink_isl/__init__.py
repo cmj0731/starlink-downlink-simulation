@@ -60,6 +60,12 @@ from starlink_isl.qpsk import (
     simulate_pilot_aided_qpsk_snapshot,
     theoretical_qpsk_ber_awgn,
 )
+from starlink_isl.receiver_filter import (
+    ReceiverFilterConfig,
+    ReceiverFilterResult,
+    apply_receiver_filter,
+    design_receiver_filter,
+)
 from starlink_isl.si_interface import (
     DownlinkStateSI,
     downlink_state_si,
@@ -89,6 +95,8 @@ __all__ = [
     "LinkBudgetResult",
     "PilotQPSKSnapshot",
     "QPSKSnapshot",
+    "ReceiverFilterConfig",
+    "ReceiverFilterResult",
     "GroundStation",
     "SGP4PropagationError",
     "SISOChannelConfig",
@@ -99,12 +107,14 @@ __all__ = [
     "REFERENCE_NOISE_TEMPERATURE_K",
     "SPEED_OF_LIGHT_KM_S",
     "VisibilityWindow",
+    "apply_receiver_filter",
     "compensate_cfo",
     "compensate_siso_channel_doppler",
     "compensate_siso_channel_sequence_doppler",
     "downlink_dynamics",
     "downlink_geometry",
     "downlink_state_si",
+    "design_receiver_filter",
     "apply_siso_downlink_channel",
     "apply_siso_downlink_sequence",
     "error_vector_magnitude_percent",

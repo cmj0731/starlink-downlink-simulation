@@ -236,6 +236,47 @@ OFDM 처리는 이 모듈에 포함하지 않는다.
 초기화되지 않으므로 앞 블록에서 생긴 잔류 주파수 오차가 자연스럽게
 누적된다.
 
+## 파형 독립 수신 FIR 필터
+
+`apply_receiver_filter`는 복소 기저대역 신호의 각 행을 독립적으로
+저역통과 필터링한다. OFDM 심벌, pilot, FFT 및 변조 방식은 해석하지 않으며,
+여러 행을 입력해도 결합하거나 beamforming하지 않는다.
+
+```python
+from starlink_isl import ReceiverFilterConfig, apply_receiver_filter
+
+filter_config = ReceiverFilterConfig(
+    sample_rate_hz=1.0e6,
+    passband_edge_hz=100.0e3,  # 실제 점유 대역폭의 절반 이상
+    stopband_edge_hz=180.0e3,
+    num_taps=129,
+)
+filtered = apply_receiver_filter(
+    perfect.compensated_signal,
+    filter_config,
+)
+
+print(filtered.group_delay_samples)              # 64
+print(filtered.equivalent_noise_bandwidth_hz)
+```
+
+현재 수신 기준선은 큰 위성 Doppler를 먼저 보상한 뒤 디지털 수신 필터를
+적용한다. 그래야 필터 통과대역이 수백 kHz의 원래 Doppler까지 불필요하게
+포함하지 않아도 된다. FIR은 인과적으로 적용되며 출력 길이는 입력과 같다.
+군지연을 자동 제거하거나 마지막 convolution tail을 덧붙이지 않으므로,
+OFDM 모듈은 `group_delay_samples`를 이용해 심벌 경계를 정렬해야 한다.
+
+긴 신호를 여러 번 호출해 처리할 때는 앞 결과의 `final_state`를 다음 호출의
+`initial_state`로 전달한다. 전체 다중 블록 신호를 한 번에 전달하면 채널
+블록 경계에서도 필터 상태가 자동으로 유지된다.
+
+채널 AWGN과 이 필터를 함께 사용할 때는 `SISOChannelConfig`의
+`noise_bandwidth_hz=sample_rate_hz`로 필터 전 백색잡음을 생성하는 것이
+기준이다. 그러면 필터 뒤 잡음전력은 근사적으로
+`k*T*equivalent_noise_bandwidth_hz`가 된다. 채널에서 이미 최종 수신
+대역폭으로 `kTB`를 만든 뒤 같은 필터를 다시 적용하면 잡음 대역폭을 두 번
+반영하게 되므로 피해야 한다.
+
 ## 전파 지연과 도플러
 
 ```python
