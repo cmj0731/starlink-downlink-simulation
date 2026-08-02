@@ -59,6 +59,11 @@ from starlink_isl.si_interface import (
     ideal_downlink_state_si,
     sgp4_downlink_state_si,
 )
+from starlink_isl.satellite_channel import (
+    SISOChannelConfig,
+    SISOChannelResult,
+    apply_siso_downlink_channel,
+)
 
 __version__ = "0.1.0"
 
@@ -75,6 +80,8 @@ __all__ = [
     "QPSKSnapshot",
     "GroundStation",
     "SGP4PropagationError",
+    "SISOChannelConfig",
+    "SISOChannelResult",
     "ecef_to_geodetic",
     "BOLTZMANN_J_K",
     "REFERENCE_NOISE_TEMPERATURE_K",
@@ -83,6 +90,7 @@ __all__ = [
     "downlink_dynamics",
     "downlink_geometry",
     "downlink_state_si",
+    "apply_siso_downlink_channel",
     "error_vector_magnitude_percent",
     "estimate_pilot_frequency_and_phase",
     "equivalent_receiver_noise_temperature_k",

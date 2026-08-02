@@ -131,6 +131,49 @@ print(state.elevation_rad)
 북쪽에서 동쪽으로 증가한다. 천정에서는 방위각이 정의되지 않으므로 `NaN`이다.
 SGP4 인터페이스의 `time_s`는 기본적으로 첫 입력 UTC를 정확히 `0 s`로 둔다.
 
+## 파형 독립 SISO 위성 채널
+
+`apply_siso_downlink_channel`은 OFDM 프레임을 생성하거나 해석하지 않는다.
+다른 모듈이 만든 임의의 복소 기저대역 신호에 자유공간 경로손실, Doppler
+위상 회전과 선택적 열잡음만 적용한다.
+
+```python
+import numpy as np
+
+from starlink_isl import (
+    SISOChannelConfig,
+    apply_siso_downlink_channel,
+    ideal_downlink_state_si,
+)
+
+state = ideal_downlink_state_si(0.0, carrier_frequency_hz=10.0e9)
+tx_signal = np.ones((1, 288), dtype=np.complex128)
+config = SISOChannelConfig(
+    carrier_frequency_hz=10.0e9,
+    sample_rate_hz=1.0e6,  # 파형 모듈과 합의한 값으로 교체
+    transmit_power_w=1.0,
+    noise_bandwidth_hz=1.0e6,
+    add_awgn=True,
+)
+result = apply_siso_downlink_channel(tx_signal, state, config)
+
+print(result.received_signal.shape)       # (1, 288)
+print(result.free_space_path_loss_db)
+print(result.doppler_shift_hz)
+print(result.propagation_delay_s)
+```
+
+입력은 무차원 복소 신호이며 평균전력 정규화는 송신 파형 모듈의 책임이다.
+단위 평균전력 입력에는 `transmit_power_w`의 제곱근이 곱해진다. 반환 신호의
+단위는 `sqrt(W)`이고 잡음전력은 `k*T*B`이다. 안테나 이득과 beamforming
+이득은 포함하지 않으므로 이후 배열 모듈에서 중복 없이 추가해야 한다.
+
+첫 구현은 한 채널 블록 동안 거리와 Doppler 주파수가 일정하다고 가정하되,
+Doppler 위상은 모든 파형 샘플에서 증가시킨다. OFDM 연결 시 심볼마다
+`state_index`를 갱신할 수 있다. 절대 전파 지연은 메타데이터로 반환하며
+샘플 이동은 하지 않는다. 따라서 현재 수신 신호는 완벽한 타이밍 동기화로
+정렬된 기준선이다.
+
 ## 전파 지연과 도플러
 
 ```python
