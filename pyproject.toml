@@ -9,18 +9,18 @@ description = "Starlink inter-satellite link analysis using CelesTrak orbital da
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-  "matplotlib>=3.9",
-  "networkx>=3.3",
-  "numpy>=2.0",
-  "pandas>=2.2",
-  "PyYAML>=6.0",
-  "requests>=2.32",
-  "scipy>=1.14",
-  "sgp4>=2.23",
+  "matplotlib>=3.10,<3.11",
+  "networkx>=3.5,<3.6",
+  "numpy>=2.2,<2.3",
+  "pandas>=2.3,<2.4",
+  "PyYAML>=6.0.2,<6.1",
+  "requests>=2.32.4,<2.33",
+  "scipy>=1.15,<1.16",
+  "sgp4>=2.25,<2.26",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.3"]
+dev = ["pytest>=8.4,<8.5"]
 
 [project.scripts]
 starlink-fetch = "starlink_isl.celestrak:main"
@@ -32,6 +32,7 @@ starlink-channel-blocks = "starlink_isl.channel_block_simulate:main"
 starlink-channel-errors = "starlink_isl.channel_prediction_error_simulate:main"
 starlink-team-interface = "starlink_isl.team_interface:main"
 starlink-waveform = "starlink_isl.waveform_simulate:main"
+starlink-reproduce = "starlink_isl.reproduction:main"
 
 [tool.pytest.ini_options]
 addopts = "-q"

@@ -8,10 +8,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-import matplotlib.pyplot as plt
+import matplotlib
 import numpy as np
 import pandas as pd
 from sgp4.api import Satrec
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 from starlink_isl.actual_downlink import (
     ActualPass,

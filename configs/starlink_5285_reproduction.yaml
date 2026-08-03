@@ -1,0 +1,74 @@
+schema_version: 1
+
+scenario:
+  name: starlink_5285_skku_reproduction_v1
+  description: >-
+    Offline, deterministic reproduction of the STARLINK-5285 SGP4 downlink,
+    LOS SISO OFDM channel, compensation studies, and QPSK reference waveform.
+  random_seed: 55285
+
+paths:
+  # Repository-root-relative paths. The default run reads only fixed_omm.
+  baseline_config: configs/ofdm_baseline.yaml
+  fixed_omm: data/fixtures/starlink_5285_norad_55296_epoch_20260727T115354Z_omm.json
+  latest_celestrak_cache: data/raw/starlink_55296_omm.json
+  output_root: outputs
+
+satellite:
+  object_name: STARLINK-5285
+  norad_catalog_id: 55296
+
+ground_station:
+  name: Sungkyunkwan University Natural Sciences Campus
+  latitude_deg: 37.2934
+  longitude_deg: 126.9747
+  altitude_m: 0.0
+
+pass_search:
+  start_utc: 2026-07-29T00:00:00Z
+  duration_s: 86400.0
+  minimum_elevation_deg: 10.0
+  coarse_step_s: 30.0
+  output_time_step_s: 1.0
+  plot_padding_s: 60.0
+
+sgp4_link_budget:
+  carrier_frequency_hz: 10000000000.0
+  bandwidth_hz: 100000000.0
+  transmit_power_dbw: 10.0
+  transmit_antenna_gain_dbi: 30.0
+  receive_antenna_gain_dbi: 40.0
+  system_noise_temperature_k: 290.0
+  other_losses_db: 2.0
+
+channel:
+  # These values must match paths.baseline_config; the loader rejects drift.
+  carrier_frequency_hz: 11700000000.0
+  fft_size: 256
+  subcarrier_spacing_hz: 120000.0
+  cyclic_prefix_samples: 0
+  active_subcarrier_count: 223
+  pilot_spacing_active_subcarriers: 16
+  symbol_count: 256
+  other_losses_db: 0.0
+  magnitude_observation_step_s: 0.1
+  block_symbol_counts: [120, 256, 600, 1200]
+
+prediction_error_sweep:
+  source_symbol_count: 1200
+  analysis_symbol_count: 256
+  range_errors_m: [-10.0, -1.0, -0.1, 0.0, 0.1, 1.0, 10.0]
+  radial_velocity_errors_m_s: [-10.0, -1.0, -0.1, 0.0, 0.1, 1.0, 10.0]
+  timing_errors_ms: [-1.0, -0.1, -0.01, 0.0, 0.01, 0.1, 1.0]
+  doppler_errors_hz: [-1200.0, -600.0, -120.0, 0.0, 120.0, 600.0, 1200.0]
+
+ideal_reference:
+  enabled: true
+  output_time_step_s: 1.0
+
+qpsk_reference:
+  enabled: true
+  data_symbol_count: 8192
+  pilot_symbol_count: 256
+  symbol_rate_hz: 1000000.0
+  snapshot_count: 81

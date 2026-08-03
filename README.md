@@ -1,5 +1,105 @@
 # Starlink ISL
 
+## STARLINK-5285 고정 입력 재현
+
+이 저장소는 STARLINK-5285(NORAD 55296)의 고정 OMM과 명시적인 SI 단위
+설정을 사용해 Windows 컴퓨터 간에 동일한 수치 산출물을 다시 만들 수 있다.
+기본 재현 경로는 네트워크를 사용하지 않는다. 저장소 루트에서 다음 명령을
+순서대로 실행한다.
+
+```powershell
+git clone https://github.com/cmj0731/starlink-downlink-simulation.git
+cd starlink-downlink-simulation
+conda env create -f environment.yml
+conda activate starlink-isl
+python scripts/reproduce_all.py --scenario configs/starlink_5285_reproduction.yaml
+```
+
+`configs/starlink_5285_reproduction.yaml`에는 위성·지상국·검색 구간·링크 버짓,
+OFDM numerology, 심벌 수, 블록 길이, 예측 오차 sweep과 난수 seed가 모두 SI
+단위가 드러나는 필드명으로 고정되어 있다. OFDM 값은 팀 계약인
+`configs/ofdm_baseline.yaml`도 함께 참조하며, 두 파일의 핵심 값이 달라지면
+실행 전에 오류로 중단한다.
+
+### 고정 OMM과 최신 CelesTrak의 차이
+
+기본 명령은
+`data/fixtures/starlink_5285_norad_55296_epoch_20260727T115354Z_omm.json`만
+읽는다. 따라서 CelesTrak 상태나 인터넷 연결 여부에 영향을 받지 않는다.
+최신 궤도를 확인하려는 별도 실험에서만 다음 옵션을 명시한다.
+
+```powershell
+python scripts/reproduce_all.py `
+  --scenario configs/starlink_5285_reproduction.yaml `
+  --latest-celestrak
+```
+
+캐시를 무시하고 실제 다운로드를 강제하려면 `--latest-celestrak`과 함께
+`--force-download`를 사용한다. 이 모드는 궤도 epoch가 바뀌므로 고정 기준값
+검증을 통과하지 않을 수 있으며, 고정 재현 결과로 취급하지 않는다. 기존
+CelesTrak 다운로드·2시간 캐시 인터페이스는 그대로 유지된다.
+
+### 생성 파일과 그래프 의미
+
+단일 명령은 중간 수치 파일(CSV, NPZ, JSON)과 다음 핵심 그래프를 만든다.
+
+| 경로 | 의미 |
+|---|---|
+| `outputs/sgp4_downlink/orbit_3d.png` | SGP4 궤도와 선택된 가시 패스 |
+| `outputs/sgp4_downlink/ground_track.png` | WGS-84 지상 궤적과 지상국 |
+| `outputs/sgp4_downlink/geometry.png` | 거리·방위각·앙각 기하 |
+| `outputs/sgp4_downlink/delay_doppler.png` | 전파 지연과 10 GHz Doppler |
+| `outputs/sgp4_downlink/link_budget.png` | 자유공간 링크 버짓 |
+| `outputs/channel_grid/channel_grid_heatmap.png` | 복소 채널 `H[m,k]`의 시간-주파수 크기 |
+| `outputs/channel_grid/channel_grid_slices.png` | 대표 시간·주파수 slice |
+| `outputs/channel_grid/synchronization_comparison.png` | raw, 완벽 보상, 블록 시작 보상 비교 |
+| `outputs/channel_events/event_metrics.png` | 가시 시작·최근접·가시 종료 지표 |
+| `outputs/channel_events/event_phase_comparison.png` | 세 이벤트의 채널 위상 비교 |
+| `outputs/channel_events/magnitude_evolution.png` | 전체 패스 채널 크기 변화 |
+| `outputs/channel_blocks/block_length_comparison.png` | 블록 길이별 채널 변화 |
+| `outputs/channel_blocks/block_start_compensation.png` | 블록 시작 상태 고정 보상의 잔차 |
+| `outputs/channel_prediction_errors/prediction_error_residual_cfo.png` | 예측 오차별 residual CFO |
+| `outputs/channel_prediction_errors/prediction_error_residual_phase.png` | 예측 오차별 residual phase |
+
+`channel_events`, `channel_blocks`, `channel_prediction_errors` 아래의
+`visibility_start`, `closest_approach`, `visibility_end` 폴더에는 각 이벤트의
+heatmap, slice, synchronization 그래프도 생성된다. 기존 ideal 모델은
+`outputs/ideal_downlink`, seed가 고정된 QPSK 예비 파형은
+`outputs/qpsk_downlink`에 생성된다.
+
+### manifest와 재현 판정
+
+완료 후 `outputs/reproduction_manifest.json`에서 다음 정보를 확인할 수 있다.
+
+- Git commit과 작업 트리 상태, Python·주요 패키지 버전
+- 시나리오·baseline·고정 OMM 경로와 SHA-256, OMM epoch, 난수 seed
+- 생성된 전체 파일 목록과 CSV·NPZ·JSON SHA-256
+- 가시시간, 최소 경사거리, 최대 앙각, 이벤트 시각, Doppler와 range-rate 검증
+- `H[m,k]`의 `(time, frequency)` 순서와 활성 부반송파 223개 검증
+- 실행 시작·종료 시각과 물리량별 절대 허용오차
+
+운영체제, Matplotlib 빌드와 폰트 rasterizer가 다르면 PNG의 byte SHA-256은
+달라질 수 있다. 재현 성공 여부는 PNG byte 일치가 아니라 원본 수치 배열,
+수치 파일 해시와 manifest의 물리 검증으로 판단한다. 그래프는 영문 레이블과
+Matplotlib에 포함된 DejaVu Sans를 사용하고 GUI가 필요 없는 `Agg` backend로
+생성한다.
+
+### 실패 시 확인할 항목
+
+- 명령을 저장소 루트에서 실행했고 `starlink-isl` Conda 환경을 활성화했는가
+- `configs/starlink_5285_reproduction.yaml`의 baseline·OMM 상대 경로가
+  존재하는가
+- 재현 YAML의 OFDM 값과 `configs/ofdm_baseline.yaml` 값이 같은가
+- 고정 OMM의 객체 이름과 NORAD ID가 시나리오와 같은가
+- 이전 단계의 오류 메시지에 표시된 파일·물리 검증 항목이 무엇인가
+- 최신 CelesTrak 모드라면 인터넷 연결과 `data/raw` 캐시 권한이 있는가
+
+실행기는 한 단계가 실패하면 다음 단계로 진행하지 않고 단계 이름과 원인을
+출력한다. `outputs/*`는 큰 중간 산출물이므로 계속 Git에서 제외한다. 대표
+PNG를 `docs/figures`에 복사해 추적하지 않는 이유도 같은 그림을 고정 입력으로
+재생성할 수 있고, 플랫폼별 PNG byte 차이를 소스 변경으로 오해하지 않게 하기
+위해서다.
+
 CelesTrak의 Starlink 궤도 데이터를 이용해 위성 위치와 위성 간 링크
 (Inter-Satellite Link, ISL)를 분석하는 프로젝트입니다.
 
