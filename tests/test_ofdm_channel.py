@@ -9,9 +9,11 @@ from starlink_isl import (
     evaluate_siso_ofdm_channel_grid,
     ideal_downlink_state_si,
     load_research_baseline,
+    predict_block_start_delay_and_doppler_phase,
     save_siso_channel_grid_npz,
     save_synchronized_siso_channel_grid_npz,
     synchronize_siso_ofdm_channel_grid,
+    synchronize_siso_ofdm_channel_grid_from_block_start,
 )
 from starlink_isl.downlink_dynamics import SPEED_OF_LIGHT_KM_S
 
@@ -185,6 +187,69 @@ def test_synchronization_exposes_known_delay_and_carrier_phase_errors(baseline):
         expected_response,
         abs=1.0e-18,
     )
+
+
+def test_block_start_prediction_holds_delay_and_integrates_constant_doppler():
+    time_s = np.array([2.0, 2.1, 2.2])
+    delay_s = np.array([1.0e-3, 1.1e-3, 1.2e-3])
+    doppler_hz = np.array([5.0, 6.0, 7.0])
+    phase_rad = np.array([0.25, 4.0, 9.0])
+
+    predicted_delay_s, predicted_phase_rad = (
+        predict_block_start_delay_and_doppler_phase(
+            time_s,
+            delay_s,
+            doppler_hz,
+            phase_rad,
+        )
+    )
+
+    assert predicted_delay_s == pytest.approx(delay_s[0])
+    assert predicted_phase_rad == pytest.approx(
+        phase_rad[0] + 2.0 * np.pi * doppler_hz[0] * (time_s - time_s[0])
+    )
+    assert predicted_delay_s.flags.writeable is False
+    assert predicted_phase_rad.flags.writeable is False
+
+
+def test_block_start_synchronization_uses_no_later_truth_updates(baseline):
+    grid = _ideal_grid(baseline)
+    synchronized = synchronize_siso_ofdm_channel_grid_from_block_start(grid)
+
+    expected_delay_s, expected_phase_rad = (
+        predict_block_start_delay_and_doppler_phase(
+            grid.axes.time.time_s,
+            grid.propagation_delay_s,
+            grid.doppler_shift_hz,
+            grid.carrier_doppler_phase_rad,
+        )
+    )
+    assert synchronized.predicted_propagation_delay_s == pytest.approx(
+        expected_delay_s
+    )
+    assert synchronized.predicted_carrier_doppler_phase_rad == pytest.approx(
+        expected_phase_rad
+    )
+    assert synchronized.residual_propagation_delay_s[0] == 0.0
+    assert synchronized.residual_carrier_doppler_phase_rad[0] == 0.0
+    assert synchronized.residual_total_phase_rad[0] == pytest.approx(0.0)
+    assert np.abs(synchronized.channel_response) == pytest.approx(
+        np.abs(grid.channel_response)
+    )
+    assert synchronized.prediction_label.startswith("block_start")
+
+
+def test_block_start_prediction_rejects_invalid_reference_index():
+    values = np.array([1.0, 2.0])
+
+    with pytest.raises(ValueError, match="outside"):
+        predict_block_start_delay_and_doppler_phase(
+            values,
+            values,
+            values,
+            values,
+            block_start_index=2,
+        )
 
 
 def test_synchronization_rejects_prediction_with_wrong_shape(baseline):

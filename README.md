@@ -132,12 +132,13 @@ python -m starlink_isl.channel_grid_simulate
 | 파일 | 내용 |
 |---|---|
 | `channel_grid.npz` | 복소 `H[m,k]`, 두 축, 거리·지연·Doppler·FSPL |
-| `synchronized_channel_grid.npz` | 예측 지연·Doppler 위상을 제거한 `H_sync[m,k]`와 잔류 오차 |
+| `synchronized_channel_grid.npz` | 매 심벌 정답을 제거한 perfect `H_sync[m,k]`와 잔류 오차 |
+| `block_start_synchronized_channel_grid.npz` | 블록 첫 상태만 사용하는 보상 채널과 잔류 오차 |
 | `time_axis.csv` | 심벌 번호, 시작 시각, 채널 평가 시각 및 UTC |
 | `frequency_axis.csv` | signed index, 자연/shifted FFT bin, baseband/RF 주파수 |
 | `summary.json` | 모델 범위, grid 크기 및 물리량 최솟값·최댓값 |
 | `channel_grid_heatmap.png` | x축 시간, y축 주파수인 `H[m,k]` 크기·위상 heatmap |
-| `synchronization_comparison.png` | raw 위상과 동기화 후 잔류 위상 비교 |
+| `synchronization_comparison.png` | raw, 블록 시작 보상, perfect 보상의 잔류 위상 비교 |
 | `channel_grid_slices.png` | 특정 시각·부반송파의 주파수/시간 단면 |
 
 채널식은 다음과 같다.
@@ -170,6 +171,17 @@ e^{-j2\pi f_k(\tau[m]-\hat\tau[m])}
 추정기를 구현하거나 OFDM 송수신기와 결합한 것이 아니다. 이후 예측 오차를
 주면 잔류 delay와 carrier phase만 `H_sync`에 나타난다. 예측 carrier phase는
 raw 채널과 동일한 기준 이벤트에서 위상 0을 정의해야 한다.
+
+현실적인 첫 비교로 블록의 첫 심벌에서 얻은 delay와 Doppler를 블록 내부에서
+다음처럼 사용한다.
+
+\[
+\hat\tau(t)=\tau(t_0),\qquad
+\hat\phi_D(t)=\phi_D(t_0)+2\pi f_D(t_0)(t-t_0)
+\]
+
+즉 delay는 고정하고 carrier phase는 첫 Doppler를 일정하다고 보고 연속적으로
+적분한다. 첫 심벌 이후의 실제 상태는 보상값 갱신에 사용하지 않는다.
 
 내부 배열은 계산을 위해 `(time, frequency)` 순서인 `H[m,k]`로 저장한다.
 Heatmap은 일반적인 시간-주파수 표처럼 x축을 시간, y축을 주파수로 두기
@@ -241,6 +253,8 @@ python -m starlink_isl.channel_block_simulate
 | `block_metrics.csv` | 이벤트·블록 길이별 거리, delay, Doppler, magnitude, 위상, 채널 상관도 |
 | `block_summary.json` | 시간축 정의, 전체 지표와 해석 제한 |
 | `block_length_comparison.png` | 네 블록 길이에서 세 이벤트의 변화량 비교 |
+| `block_start_compensation.png` | 첫 상태만 사용한 보상 후 잔류 delay·CFO·phase 비교 |
+| `<event>/block_start_compensation_<N>_symbols.npz` | 이벤트·블록별 보상 채널과 예측값·잔류값 |
 
 블록 길이는 실제 신호 구간인 `N * T_OFDM`, 채널 표본의 첫 시각과 마지막
 시각 사이는 `(N-1) * T_OFDM`으로 구분한다. 따라서 현재 256심벌 블록은

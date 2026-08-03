@@ -310,6 +310,100 @@ def synchronize_siso_ofdm_channel_grid(
     )
 
 
+def predict_block_start_delay_and_doppler_phase(
+    time_s: ArrayLike,
+    propagation_delay_s: ArrayLike,
+    doppler_shift_hz: ArrayLike,
+    carrier_doppler_phase_rad: ArrayLike,
+    *,
+    block_start_index: int = 0,
+) -> tuple[FloatArray, FloatArray]:
+    """Predict a block from its initial delay, phase, and constant Doppler.
+
+    Propagation delay is held at its block-start value. Carrier phase starts at
+    the true block-start phase and advances with the block-start Doppler:
+
+    ``tau_pred(t) = tau(t0)``
+    ``phi_pred(t) = phi(t0) + 2*pi*f_D(t0)*(t-t0)``.
+
+    This zero-order block model represents one geometry/Doppler update per
+    block. It does not use later truth samples to update the prediction.
+    """
+
+    times = np.asarray(time_s, dtype=np.float64)
+    if times.ndim != 1 or times.size == 0:
+        raise ValueError("time_s must be a non-empty one-dimensional array")
+    if not np.all(np.isfinite(times)) or np.any(np.diff(times) <= 0.0):
+        raise ValueError("time_s must be finite and strictly increasing")
+    expected_shape = (times.size,)
+    delay_s = _state_values(
+        propagation_delay_s,
+        expected_shape,
+        "propagation_delay_s",
+    )
+    if np.any(delay_s <= 0.0):
+        raise ValueError("propagation_delay_s must be positive")
+    doppler_hz = _state_values(
+        doppler_shift_hz,
+        expected_shape,
+        "doppler_shift_hz",
+    )
+    carrier_phase_rad = _state_values(
+        carrier_doppler_phase_rad,
+        expected_shape,
+        "carrier_doppler_phase_rad",
+    )
+    if isinstance(block_start_index, (bool, np.bool_)) or not isinstance(
+        block_start_index,
+        (int, np.integer),
+    ):
+        raise TypeError("block_start_index must be an integer")
+    start = int(block_start_index)
+    if not 0 <= start < times.size:
+        raise ValueError("block_start_index is outside the time axis")
+
+    predicted_delay_s = np.full(
+        times.shape,
+        delay_s[start],
+        dtype=np.float64,
+    )
+    predicted_carrier_phase_rad = (
+        carrier_phase_rad[start]
+        + 2.0 * np.pi * doppler_hz[start] * (times - times[start])
+    )
+    return (
+        _read_only(predicted_delay_s),
+        _read_only(
+            np.asarray(predicted_carrier_phase_rad, dtype=np.float64)
+        ),
+    )
+
+
+def synchronize_siso_ofdm_channel_grid_from_block_start(
+    grid: SISOChannelGrid,
+    *,
+    block_start_index: int = 0,
+    prediction_label: str = "block_start_held_delay_constant_doppler",
+) -> SynchronizedSISOChannelGrid:
+    """Remove a prediction formed only from one block-start channel state."""
+
+    predicted_delay_s, predicted_carrier_phase_rad = (
+        predict_block_start_delay_and_doppler_phase(
+            grid.axes.time.time_s,
+            grid.propagation_delay_s,
+            grid.doppler_shift_hz,
+            grid.carrier_doppler_phase_rad,
+            block_start_index=block_start_index,
+        )
+    )
+    return synchronize_siso_ofdm_channel_grid(
+        grid,
+        predicted_delay_s,
+        predicted_carrier_phase_rad,
+        prediction_label=prediction_label,
+    )
+
+
 def save_siso_channel_grid_npz(
     grid: SISOChannelGrid,
     path: str | Path,

@@ -26,6 +26,9 @@ from starlink_isl.channel_grid_simulate import (
     DEFAULT_SOURCE_OMM_PATH,
     run_channel_grid_simulation,
 )
+from starlink_isl.ofdm_channel import (
+    predict_block_start_delay_and_doppler_phase,
+)
 from starlink_isl.research_config import (
     DEFAULT_BASELINE_PATH,
     ResearchBaselineConfig,
@@ -44,6 +47,7 @@ class ChannelBlockComparisonArtifacts:
     metrics_csv: Path
     summary_json: Path
     comparison_png: Path
+    block_start_compensation_png: Path
 
 
 def _utc(value: datetime, name: str) -> datetime:
@@ -122,6 +126,17 @@ def _frequency_vector_correlation(
     return np.asarray(numerator / denominator, dtype=np.float64)
 
 
+def _normalized_frequency_vector_error(
+    response: np.ndarray,
+    reference: np.ndarray,
+) -> np.ndarray:
+    return np.asarray(
+        np.linalg.norm(response - reference[None, :], axis=1)
+        / np.linalg.norm(reference),
+        dtype=np.float64,
+    )
+
+
 def _block_metrics(
     event: str,
     reference_utc: datetime,
@@ -129,6 +144,7 @@ def _block_metrics(
     synchronized_npz: Path,
     block_symbol_counts: tuple[int, ...],
     symbol_duration_s: float,
+    event_output_directory: Path,
 ) -> list[dict[str, Any]]:
     with np.load(raw_npz, allow_pickle=False) as raw:
         response = np.array(raw["channel_response"], copy=True)
@@ -164,6 +180,61 @@ def _block_metrics(
         block_delay_s = delay_s[start:stop]
         block_doppler_hz = doppler_hz[start:stop]
         block_carrier_phase_rad = carrier_phase_rad[start:stop]
+        predicted_delay_s, predicted_carrier_phase_rad = (
+            predict_block_start_delay_and_doppler_phase(
+                block_time_s,
+                block_delay_s,
+                block_doppler_hz,
+                block_carrier_phase_rad,
+            )
+        )
+        residual_delay_s = block_delay_s - predicted_delay_s
+        residual_cfo_hz = block_doppler_hz - block_doppler_hz[0]
+        residual_carrier_phase_rad = (
+            block_carrier_phase_rad - predicted_carrier_phase_rad
+        )
+        residual_delay_phase_rad = (
+            -2.0
+            * np.pi
+            * residual_delay_s[:, None]
+            * frequency_hz[None, :]
+        )
+        residual_total_phase_rad = (
+            residual_carrier_phase_rad[:, None]
+            + residual_delay_phase_rad
+        )
+        block_start_response = block_gain * np.exp(
+            1j * residual_total_phase_rad
+        )
+        block_start_npz = (
+            event_output_directory
+            / f"block_start_compensation_{count}_symbols.npz"
+        )
+        np.savez_compressed(
+            block_start_npz,
+            channel_response=block_start_response,
+            raw_channel_response=block_response,
+            perfect_channel_response=block_synchronized,
+            time_s=block_time_s,
+            baseband_frequency_hz=frequency_hz,
+            predicted_propagation_delay_s=predicted_delay_s,
+            predicted_carrier_doppler_phase_rad=(
+                predicted_carrier_phase_rad
+            ),
+            residual_propagation_delay_s=residual_delay_s,
+            residual_cfo_hz=residual_cfo_hz,
+            residual_carrier_doppler_phase_rad=(
+                residual_carrier_phase_rad
+            ),
+            residual_delay_phase_rad=residual_delay_phase_rad,
+            residual_total_phase_rad=residual_total_phase_rad,
+            prediction_label=np.asarray(
+                "block_start_held_delay_constant_doppler"
+            ),
+            model=np.asarray(
+                "one exact state update at the first OFDM symbol"
+            ),
+        )
 
         reference_delay_s = _at_reference(block_time_s, block_delay_s)
         reference_carrier_phase_rad = _at_reference(
@@ -192,6 +263,22 @@ def _block_metrics(
         synchronized_correlation = _frequency_vector_correlation(
             block_synchronized,
             reference_synchronized,
+        )
+        block_start_reference = np.asarray(
+            block_start_response[0],
+            dtype=np.complex128,
+        )
+        block_start_correlation = _frequency_vector_correlation(
+            block_start_response,
+            block_start_reference,
+        )
+        block_start_error = _normalized_frequency_vector_error(
+            block_start_response,
+            block_start_reference,
+        )
+        perfect_error = _normalized_frequency_vector_error(
+            block_synchronized,
+            np.asarray(block_synchronized[0], dtype=np.complex128),
         )
         near_dc_magnitude_db = 20.0 * np.log10(
             np.abs(block_response[:, near_dc])
@@ -281,6 +368,44 @@ def _block_metrics(
                 "minimum_synchronized_frequency_vector_correlation_magnitude": (
                     float(np.min(synchronized_correlation))
                 ),
+                "block_start_compensation_npz": block_start_npz.name,
+                "block_start_delay_ms": float(block_delay_s[0] * 1.0e3),
+                "block_start_doppler_shift_khz": float(
+                    block_doppler_hz[0] / 1.0e3
+                ),
+                "maximum_absolute_block_start_residual_delay_ns": float(
+                    np.max(np.abs(residual_delay_s)) * 1.0e9
+                ),
+                "maximum_absolute_block_start_residual_cfo_hz": float(
+                    np.max(np.abs(residual_cfo_hz))
+                ),
+                "block_end_block_start_residual_cfo_hz": float(
+                    residual_cfo_hz[-1]
+                ),
+                (
+                    "maximum_absolute_block_start_residual_carrier_phase_cycles"
+                ): float(
+                    np.max(np.abs(residual_carrier_phase_rad))
+                    / (2.0 * np.pi)
+                ),
+                "maximum_absolute_block_start_residual_total_phase_cycles": (
+                    float(
+                        np.max(np.abs(residual_total_phase_rad))
+                        / (2.0 * np.pi)
+                    )
+                ),
+                "rms_block_start_residual_total_phase_rad": float(
+                    np.sqrt(np.mean(residual_total_phase_rad**2))
+                ),
+                (
+                    "minimum_block_start_frequency_vector_correlation_magnitude"
+                ): float(np.min(block_start_correlation)),
+                "maximum_block_start_normalized_complex_error": float(
+                    np.max(block_start_error)
+                ),
+                "maximum_perfect_normalized_complex_error": float(
+                    np.max(perfect_error)
+                ),
                 "magnitude_change_below_0p01_db": bool(
                     np.max(
                         np.abs(
@@ -359,6 +484,71 @@ def _save_comparison_plot(metrics: pd.DataFrame, path: Path) -> None:
     plt.close(figure)
 
 
+def _save_block_start_compensation_plot(
+    metrics: pd.DataFrame,
+    path: Path,
+) -> None:
+    figure, axes = plt.subplots(
+        2,
+        2,
+        figsize=(11.5, 8.2),
+        constrained_layout=True,
+    )
+    columns = (
+        (
+            "maximum_absolute_block_start_residual_delay_ns",
+            "Max residual delay (ns)",
+        ),
+        (
+            "maximum_absolute_block_start_residual_cfo_hz",
+            "Max residual CFO (Hz)",
+        ),
+        (
+            "maximum_absolute_block_start_residual_carrier_phase_cycles",
+            "Max residual carrier phase (cycles)",
+        ),
+        (
+            "maximum_absolute_block_start_residual_total_phase_cycles",
+            "Max residual total phase over grid (cycles)",
+        ),
+    )
+    colors = ("tab:blue", "tab:green", "tab:orange")
+    markers = ("o", "s", "^")
+    for axis, (column, ylabel) in zip(
+        axes.flat,
+        columns,
+        strict=True,
+    ):
+        for event, color, marker in zip(
+            EVENT_ORDER,
+            colors,
+            markers,
+            strict=True,
+        ):
+            event_metrics = metrics.loc[
+                metrics["reference_event"] == event
+            ]
+            axis.plot(
+                event_metrics["nominal_block_duration_ms"],
+                event_metrics[column],
+                color=color,
+                marker=marker,
+                label=EVENT_LABELS[event],
+            )
+        axis.set(
+            xlabel="Nominal OFDM block duration (ms)",
+            ylabel=ylabel,
+        )
+        axis.set_yscale("log")
+        axis.grid(True, which="both", alpha=0.3)
+    axes[0, 0].legend(loc="best")
+    figure.suptitle(
+        "Residuals after one block-start delay and Doppler update"
+    )
+    figure.savefig(path, dpi=170)
+    plt.close(figure)
+
+
 def run_channel_block_comparison(
     output_directory: Path,
     *,
@@ -396,6 +586,7 @@ def run_channel_block_comparison(
                 event_artifacts.synchronized_channel_grid_npz,
                 counts,
                 config.ofdm.total_symbol_duration_s,
+                output_directory / event,
             )
         )
 
@@ -404,6 +595,9 @@ def run_channel_block_comparison(
         metrics_csv=output_directory / "block_metrics.csv",
         summary_json=output_directory / "block_summary.json",
         comparison_png=output_directory / "block_length_comparison.png",
+        block_start_compensation_png=(
+            output_directory / "block_start_compensation.png"
+        ),
     )
     metrics.to_csv(artifacts.metrics_csv, index=False)
     current_rows = metrics.loc[metrics["symbol_count"] == 256]
@@ -416,6 +610,16 @@ def run_channel_block_comparison(
             "nominal_duration": "N times OFDM symbol duration",
             "channel_evaluation_span": "(N-1) times OFDM symbol duration",
             "centering": "relative t=0 lies between the two centre symbols",
+        },
+        "block_start_compensation_model": {
+            "update_count_per_block": 1,
+            "update_symbol": "first OFDM symbol",
+            "predicted_delay": "held at the block-start delay",
+            "predicted_carrier_phase": (
+                "block-start phase plus integrated constant block-start Doppler"
+            ),
+            "uses_later_truth_samples": False,
+            "perfect_same_state_comparison_retained": True,
         },
         "metrics": records,
         "current_256_symbol_block": (
@@ -439,6 +643,10 @@ def run_channel_block_comparison(
         encoding="utf-8",
     )
     _save_comparison_plot(metrics, artifacts.comparison_png)
+    _save_block_start_compensation_plot(
+        metrics,
+        artifacts.block_start_compensation_png,
+    )
     return artifacts
 
 

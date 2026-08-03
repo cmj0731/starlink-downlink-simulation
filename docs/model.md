@@ -722,6 +722,29 @@ carrier phase에서 `H_sync`를 다시 구성해 수치 정밀도를 유지한�
 estimator, pilot 추정 또는 OFDM 결합을 포함하지 않는다. 예측 carrier phase는
 raw 채널과 동일한 기준 이벤트와 상수 위상 기준을 사용해야 한다.
 
+`block_start_held_delay_constant_doppler`는 각 블록의 첫 채널 상태만 사용한다.
+블록 시작 시각을 \(t_0\)라 하면
+
+\[
+\hat\tau(t)=\tau(t_0)
+\]
+
+\[
+\hat\phi_D(t)=
+\phi_D(t_0)+2\pi f_D(t_0)(t-t_0)
+\]
+
+로 예측한다. 첫 시각의 delay, carrier phase와 Doppler는 정확하다고 가정하지만,
+이후 심벌의 실제 delay·Doppler는 보상기 갱신에 사용하지 않는다. 따라서
+
+\[
+\delta\tau(t)=\tau(t)-\tau(t_0),\qquad
+\delta f_D(t)=f_D(t)-f_D(t_0)
+\]
+
+와 비선형 carrier phase 오차가 남는다. 이는 아직 pilot estimator가 아니라
+블록당 한 번 완전한 상태를 얻는 채널 측 기준 모델이다.
+
 `channel_grid.npz`에는 raw 복소 채널과 함께 시간축, signed/자연 FFT/shifted FFT
 주파수축,
 거리, 지연, radial velocity, Doppler, FSPL 및 위상 항을 저장한다. CSV는
@@ -734,9 +757,11 @@ raw 채널과 동일한 기준 이벤트와 상수 위상 기준을 사용해야
 단계에서만 `H.T`를 사용한다. 이 전치는 저장 형식이나 채널 계산식을 바꾸지
 않는다.
 
-`synchronized_channel_grid.npz`에는 `H_sync`, raw 채널, 예측 delay/phase,
-잔류 delay/phase 및 예측 label을 저장한다. `synchronization_comparison.png`는
-동일한 시간-주파수축에서 raw wrapped phase와 동기화 후 잔류 phase를 비교한다.
+`synchronized_channel_grid.npz`에는 perfect `H_sync`를,
+`block_start_synchronized_channel_grid.npz`에는 블록 시작 보상 채널을 저장한다.
+두 파일 모두 raw 채널, 예측 delay/phase, 잔류 delay/phase 및 예측 label을
+포함한다. `synchronization_comparison.png`는 동일한 시간-주파수축에서 raw,
+블록 시작 보상, perfect 보상의 wrapped phase를 비교한다.
 
 ### 19.2 패스 3개 이벤트 비교
 
@@ -829,6 +854,20 @@ envelope를 표시하기 위한 것으로, OFDM 복소 grid `H[m,k]`를 대신�
 가시 시작·종료에서는 Doppler와 delay phase 때문에 복소 채널을 같은 값으로
 고정할 수 없다. 실제 허용 블록 길이는 이후 pilot 배치와 예측 오차를 결합한
 잔류 채널을 기준으로 다시 결정해야 한다.
+
+블록 시작 보상을 적용한 현재 256심벌 블록의 최대 잔류값은 다음과 같다.
+
+| 이벤트 | 잔류 delay | 잔류 CFO | 잔류 carrier phase | 전체 grid 잔류 phase |
+|---|---:|---:|---:|---:|
+| 가시 시작 | 47.378 ns | 0.161 Hz | 0.000169 cycles | 0.637 cycles |
+| 최근접 | 0.000163 ns | 7.199 Hz | 0.007649 cycles | 0.007649 cycles |
+| 가시 종료 | 47.409 ns | 0.169 Hz | 0.000181 cycles | 0.637 cycles |
+
+가시 경계에서는 Doppler 자체는 크지만 2.133 ms 동안의 Doppler 변화는 작아서
+carrier phase 예측 오차가 작다. 대신 큰 radial velocity 때문에 고정한 delay와
+실제 delay의 차이가 빠르게 증가하여 band-edge 잔류 phase가 커진다. 최근접은
+delay 변화가 거의 없지만 Doppler 변화율이 커서 잔류 CFO와 carrier phase가
+상대적으로 더 크게 나타난다.
 
 ## 20. SGP4 anchor와 cubic Hermite 재표본화
 

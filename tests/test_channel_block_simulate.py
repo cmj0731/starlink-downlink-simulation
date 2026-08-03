@@ -75,6 +75,20 @@ def test_channel_block_comparison_writes_nested_metrics(tmp_path):
     for event in EVENT_ORDER:
         assert (tmp_path / event / "channel_grid.npz").exists()
         assert (tmp_path / event / "synchronized_channel_grid.npz").exists()
+        for count in (8, 16):
+            block_path = (
+                tmp_path
+                / event
+                / f"block_start_compensation_{count}_symbols.npz"
+            )
+            assert block_path.exists()
+            with np.load(block_path, allow_pickle=False) as saved:
+                assert saved["channel_response"].shape == (count, 223)
+                assert saved["residual_propagation_delay_s"][0] == 0.0
+                assert saved["residual_cfo_hz"][0] == 0.0
+                assert saved[
+                    "residual_carrier_doppler_phase_rad"
+                ][0] == 0.0
 
     metrics = pd.read_csv(artifacts.metrics_csv)
     assert len(metrics) == 2 * len(EVENT_ORDER)
@@ -106,6 +120,16 @@ def test_channel_block_comparison_writes_nested_metrics(tmp_path):
             "minimum_synchronized_frequency_vector_correlation_magnitude"
         ] == pytest.approx(1.0, abs=1.0e-12)
         assert bool(row["magnitude_change_below_0p01_db"])
+        assert row[
+            "maximum_absolute_block_start_residual_delay_ns"
+        ] >= 0.0
+        assert row[
+            "maximum_absolute_block_start_residual_cfo_hz"
+        ] >= 0.0
+        assert row[
+            "maximum_absolute_block_start_residual_carrier_phase_cycles"
+        ] >= 0.0
+        assert row["maximum_perfect_normalized_complex_error"] < 1.0e-5
 
     for event in EVENT_ORDER:
         event_metrics = metrics.loc[metrics["reference_event"] == event]
@@ -127,6 +151,9 @@ def test_channel_block_comparison_writes_nested_metrics(tmp_path):
     assert summary["block_symbol_counts"] == [8, 16]
     assert summary["block_definition"]["nominal_duration"].startswith("N times")
     assert summary["current_256_symbol_block"] == []
+    compensation = summary["block_start_compensation_model"]
+    assert compensation["update_count_per_block"] == 1
+    assert compensation["uses_later_truth_samples"] is False
 
 
 @pytest.mark.parametrize(

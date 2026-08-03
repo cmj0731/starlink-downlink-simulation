@@ -54,9 +54,11 @@ from starlink_isl.ofdm_channel import (
     SISOChannelGrid,
     SynchronizedSISOChannelGrid,
     evaluate_siso_ofdm_channel_grid,
+    predict_block_start_delay_and_doppler_phase,
     save_siso_channel_grid_npz,
     save_synchronized_siso_channel_grid_npz,
     synchronize_siso_ofdm_channel_grid,
+    synchronize_siso_ofdm_channel_grid_from_block_start,
 )
 from starlink_isl.sgp4_orbit import (
     GroundStation,
@@ -179,6 +181,7 @@ __all__ = [
     "load_research_baseline",
     "propagate_ecef",
     "propagate_teme",
+    "predict_block_start_delay_and_doppler_phase",
     "qpsk_demodulate",
     "qpsk_modulate",
     "resample_downlink_state_si",
@@ -189,6 +192,7 @@ __all__ = [
     "simulate_qpsk_snapshot",
     "simulate_pilot_aided_qpsk_snapshot",
     "synchronize_siso_ofdm_channel_grid",
+    "synchronize_siso_ofdm_channel_grid_from_block_start",
     "sgp4_downlink_state_si",
     "system_noise_temperature_k",
     "thermal_noise_power_dbw",

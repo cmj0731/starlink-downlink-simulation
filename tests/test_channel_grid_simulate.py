@@ -56,6 +56,14 @@ def test_channel_grid_simulation_writes_viewable_artifacts(tmp_path):
         assert saved["prediction_label"].item() == (
             "perfect_same_state_prediction"
         )
+    with np.load(
+        artifacts.block_start_synchronized_channel_grid_npz,
+        allow_pickle=False,
+    ) as saved:
+        assert saved["channel_response"].shape == (16, 223)
+        assert saved["prediction_label"].item().startswith("block_start")
+        assert saved["residual_propagation_delay_s"][0] == 0.0
+        assert saved["residual_carrier_doppler_phase_rad"][0] == 0.0
     time_axis = pd.read_csv(artifacts.time_axis_csv)
     frequency_axis = pd.read_csv(artifacts.frequency_axis_csv)
     assert len(time_axis) == 16
@@ -79,5 +87,10 @@ def test_channel_grid_simulation_writes_viewable_artifacts(tmp_path):
     assert synchronization["maximum_absolute_residual_delay_s"] == 0.0
     assert synchronization["maximum_absolute_residual_total_phase_rad"] == 0.0
     assert synchronization["maximum_magnitude_change_db"] == 0.0
+    block_start = summary["block_start_phase_synchronization"]
+    assert block_start["prediction_label"].startswith("block_start")
+    assert block_start["maximum_absolute_residual_delay_s"] > 0.0
+    assert block_start["maximum_absolute_residual_cfo_hz"] > 0.0
+    assert block_start["maximum_magnitude_change_db"] == 0.0
     assert summary["norad_catalog_id"] == 55296
     assert summary["scope_limitations"][1].startswith("within-symbol Doppler")
