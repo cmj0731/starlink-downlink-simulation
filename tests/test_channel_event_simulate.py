@@ -3,6 +3,7 @@ from dataclasses import astuple
 from datetime import datetime, timezone
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from starlink_isl import GroundStation, load_research_baseline
@@ -62,6 +63,7 @@ def test_three_event_channel_comparison_writes_ordered_metrics(tmp_path):
             longitude_deg=126.9747,
         ),
         symbol_count=16,
+        magnitude_observation_step_s=30.0,
     )
 
     for path in astuple(artifacts):
@@ -101,3 +103,32 @@ def test_three_event_channel_comparison_writes_ordered_metrics(tmp_path):
     assert summary["event_order"] == list(EVENT_ORDER)
     assert summary["shape_per_event"] == [16, 223]
     assert summary["interpretation_limits"][2].startswith("large raw Doppler")
+    magnitude_summary = summary["long_duration_magnitude_observation"]
+    assert magnitude_summary["time_axis_kind"].startswith("coarse observation")
+    assert magnitude_summary["event_times_included_exactly"] is True
+    assert magnitude_summary["near_dc_magnitude_time_span_db"] > 9.0
+    assert (
+        magnitude_summary["near_dc_magnitude_time_span_db"]
+        > 100.0
+        * magnitude_summary[
+            "maximum_frequency_magnitude_span_at_one_time_db"
+        ]
+    )
+
+    magnitude_frame = pd.read_csv(artifacts.magnitude_evolution_csv)
+    event_rows = magnitude_frame.loc[
+        magnitude_frame["event"].notna(),
+        "event",
+    ]
+    assert set(event_rows) == set(EVENT_ORDER)
+    with np.load(artifacts.magnitude_evolution_npz, allow_pickle=False) as saved:
+        magnitude = saved["channel_magnitude_db"]
+        time_s = saved["time_from_closest_approach_s"]
+        frequency_hz = saved["baseband_frequency_hz"]
+        assert magnitude.shape == (time_s.size, frequency_hz.size)
+        assert np.count_nonzero(time_s == 0.0) == 1
+        near_dc = int(np.argmin(np.abs(frequency_hz)))
+        closest_index = int(np.flatnonzero(time_s == 0.0)[0])
+        assert magnitude[closest_index, near_dc] == np.max(
+            magnitude[:, near_dc]
+        )

@@ -756,6 +756,36 @@ OFDM 심벌은 상대시각 0을 직접 포함하지 않으므로 이벤트 기�
 해석하면 안 된다. 집계된 carrier phase 변화량은 wrapped 그림이 아니라
 경사거리에서 계산한 unwrapped physical phase를 사용한다.
 
+### 19.3 짧은 OFDM grid와 긴 magnitude 관측축
+
+현재 LOS 채널의 크기는
+
+\[
+|H(t,f_k)|=
+10^{-L_{\rm other}/20}
+\frac{c}{4\pi d(t)(f_c+f_k)}
+\]
+
+이므로 시간에 따른 경사거리 \(d(t)\)와 주파수 \(f_c+f_k\) 양쪽에 의존한다.
+따라서 magnitude는 원래 모든 시간 표본에서 변한다. 다만 120 kHz SCS,
+256심벌, CP 없음 설정의 채널 평가 span은
+
+\[
+(256-1)T_{\rm OFDM}=2.125\ {\rm ms}
+\]
+
+뿐이다. 가시 시작과 종료의 near-DC magnitude 변화도 이 구간에서는 각각 약
+\(6.5\times10^{-5}\) dB이고, 최근접에서는 약 \(7.3\times10^{-10}\) dB이다.
+반면 한 시각에서 223개 부반송파에 걸친 magnitude 차이는 약 0.0199 dB이다.
+즉 짧은 프레임 그림에서 시간 변화가 보이지 않는 것은 채널이 고정됐기 때문이
+아니라 관측 시간이 너무 짧기 때문이다.
+
+`magnitude_evolution.npz`는 전체 약 506초 가시 패스를 기본 0.1초 간격으로
+관측한 `(time, frequency)` magnitude 배열이다. 이때 near-DC magnitude의
+시간 변화폭은 약 10.26 dB로 명확하게 나타난다. 이 배열은 긴 시간의 채널
+envelope를 표시하기 위한 것으로, OFDM 복소 grid `H[m,k]`를 대신하지 않는다.
+복소 위상과 실제 심벌 처리는 기존 OFDM 심벌 시간축에서 수행해야 한다.
+
 ## 20. SGP4 anchor와 cubic Hermite 재표본화
 
 SGP4는 OMM 궤도요소로 임의의 UTC에서 위성 위치와 속도를 직접 계산하는

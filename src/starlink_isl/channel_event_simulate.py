@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -16,17 +16,21 @@ import pandas as pd
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from starlink_isl.channel_grid import build_ofdm_channel_grid_axes
 from starlink_isl.channel_grid_simulate import (
     DEFAULT_GEOMETRY_SUMMARY_PATH,
     DEFAULT_SOURCE_OMM_PATH,
     run_channel_grid_simulation,
 )
+from starlink_isl.downlink_dynamics import SPEED_OF_LIGHT_KM_S
 from starlink_isl.research_config import (
     DEFAULT_BASELINE_PATH,
     ResearchBaselineConfig,
     load_research_baseline,
 )
-from starlink_isl.sgp4_orbit import GroundStation
+from starlink_isl.sgp4_orbit import GroundStation, satrec_from_omm
+from starlink_isl.si_interface import sgp4_downlink_state_si
+from starlink_isl.state_resampling import resample_downlink_state_si
 
 DEFAULT_CHANNEL_EVENT_OUTPUT_DIRECTORY = Path("outputs/channel_events")
 EVENT_ORDER = (
@@ -44,6 +48,7 @@ EVENT_LABELS = {
     "closest_approach": "Closest approach",
     "visibility_end": "Visibility end",
 }
+SPEED_OF_LIGHT_M_S = 1_000.0 * SPEED_OF_LIGHT_KM_S
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +59,9 @@ class ChannelEventComparisonArtifacts:
     summary_json: Path
     phase_comparison_png: Path
     metrics_png: Path
+    magnitude_evolution_csv: Path
+    magnitude_evolution_npz: Path
+    magnitude_evolution_png: Path
 
 
 def _utc(value: datetime, name: str) -> datetime:
@@ -71,6 +79,13 @@ def _parse_utc(value: str) -> datetime:
 
 def _iso(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _positive_finite(value: float, name: str) -> float:
+    converted = float(value)
+    if not np.isfinite(converted) or converted <= 0.0:
+        raise ValueError(f"{name} must be finite and positive")
+    return converted
 
 
 def _event_references(
@@ -157,6 +172,12 @@ def _event_metrics(
         "reference_near_dc_channel_magnitude_db": at_reference(
             magnitude_db[:, near_dc]
         ),
+        "near_dc_magnitude_span_over_frame_db": float(
+            np.ptp(magnitude_db[:, near_dc])
+        ),
+        "frequency_magnitude_span_at_nearest_symbol_db": float(
+            np.ptp(magnitude_db[nearest])
+        ),
         "maximum_absolute_residual_delay_s": float(
             np.max(np.abs(residual_delay_s))
         ),
@@ -170,6 +191,281 @@ def _event_metrics(
         "raw_phase_rad": np.angle(channel_response),
     }
     return metrics, plot_values
+
+
+def _observation_time_axis(
+    start_s: float,
+    end_s: float,
+    nominal_step_s: float,
+    event_offsets_s: Mapping[str, float],
+) -> np.ndarray:
+    """Return a long observation axis with all event offsets included exactly."""
+
+    step_s = _positive_finite(nominal_step_s, "magnitude_observation_step_s")
+    if not np.isfinite(start_s) or not np.isfinite(end_s) or start_s >= end_s:
+        raise ValueError("magnitude observation start must precede end")
+    base = np.arange(start_s, end_s, step_s, dtype=np.float64)
+    combined = np.concatenate(
+        (
+            base,
+            np.asarray([end_s, *event_offsets_s.values()], dtype=np.float64),
+        )
+    )
+    return np.unique(combined)
+
+
+def _save_magnitude_evolution_plot(
+    *,
+    time_s: np.ndarray,
+    frequency_hz: np.ndarray,
+    magnitude_db: np.ndarray,
+    event_offsets_s: Mapping[str, float],
+    path: Path,
+    nominal_step_s: float,
+) -> None:
+    frequency_mhz = frequency_hz / 1.0e6
+    near_dc = int(np.argmin(np.abs(frequency_hz)))
+    near_dc_magnitude_db = magnitude_db[:, near_dc]
+    figure, axes = plt.subplots(
+        2,
+        1,
+        figsize=(11.0, 8.0),
+        sharex=True,
+        constrained_layout=True,
+    )
+    magnitude_map = axes[0].pcolormesh(
+        time_s,
+        frequency_mhz,
+        magnitude_db.T,
+        shading="nearest",
+        cmap="viridis",
+    )
+    colorbar = figure.colorbar(
+        magnitude_map,
+        ax=axes[0],
+        label="20 log10 |H| (dB)",
+    )
+    colorbar.formatter.set_useOffset(False)
+    colorbar.update_ticks()
+    axes[0].set(
+        ylabel="Baseband subcarrier frequency (MHz)",
+        title="Long-duration LOS channel magnitude across time and frequency",
+    )
+    axes[1].plot(
+        time_s,
+        near_dc_magnitude_db,
+        color="tab:blue",
+        label="Near-DC active subcarrier",
+    )
+    for event in EVENT_ORDER:
+        event_time_s = float(event_offsets_s[event])
+        event_index = int(np.flatnonzero(time_s == event_time_s)[0])
+        for axis in axes:
+            axis.axvline(
+                event_time_s,
+                color="tab:orange",
+                linewidth=1.0,
+                alpha=0.75,
+            )
+        axes[1].scatter(
+            [event_time_s],
+            [near_dc_magnitude_db[event_index]],
+            color="tab:orange",
+            zorder=3,
+        )
+        axes[1].annotate(
+            EVENT_LABELS[event],
+            (event_time_s, near_dc_magnitude_db[event_index]),
+            xytext=(0, -18 if event == "closest_approach" else 8),
+            textcoords="offset points",
+            ha="center",
+            va="top" if event == "closest_approach" else "bottom",
+            fontsize=8,
+        )
+    axes[1].set(
+        xlabel="Time from closest approach (s)",
+        ylabel="20 log10 |H| (dB)",
+        title="Time evolution at the active subcarrier nearest DC",
+    )
+    axes[1].ticklabel_format(axis="y", style="plain", useOffset=False)
+    axes[1].grid(True, alpha=0.3)
+    axes[1].legend(loc="lower center")
+    figure.suptitle(
+        "STARLINK-5285 visible-pass magnitude envelope "
+        f"(plot sampling {nominal_step_s:g} s; not the OFDM-symbol grid)"
+    )
+    figure.savefig(path, dpi=170)
+    plt.close(figure)
+
+
+def _save_long_duration_magnitude(
+    output_directory: Path,
+    *,
+    config: ResearchBaselineConfig,
+    omm_record: Mapping[str, Any],
+    references: Mapping[str, datetime],
+    station: GroundStation,
+    minimum_elevation_deg: float,
+    other_losses_db: float,
+    nominal_step_s: float,
+) -> tuple[dict[str, Any], Path, Path, Path]:
+    """Sample the LOS amplitude over the full visible pass for display."""
+
+    reference_utc = references["closest_approach"]
+    event_offsets_s = {
+        event: (references[event] - reference_utc).total_seconds()
+        for event in EVENT_ORDER
+    }
+    time_s = _observation_time_axis(
+        event_offsets_s["visibility_start"],
+        event_offsets_s["visibility_end"],
+        nominal_step_s,
+        event_offsets_s,
+    )
+    source_step_s = config.channel_state.geometry_source_step_s
+    first_anchor_s = np.floor(time_s[0] / source_step_s) * source_step_s
+    first_anchor_s -= source_step_s
+    last_anchor_s = np.ceil(time_s[-1] / source_step_s) * source_step_s
+    last_anchor_s += source_step_s
+    anchor_count = int(np.rint((last_anchor_s - first_anchor_s) / source_step_s))
+    anchor_offsets_s = np.linspace(
+        first_anchor_s,
+        last_anchor_s,
+        anchor_count + 1,
+        dtype=np.float64,
+    )
+    satellite = satrec_from_omm(omm_record)
+    anchor_datetimes = [
+        reference_utc + timedelta(seconds=float(offset))
+        for offset in anchor_offsets_s
+    ]
+    minimum_elevation_rad = np.deg2rad(minimum_elevation_deg)
+    source_state = sgp4_downlink_state_si(
+        anchor_datetimes,
+        satellite,
+        config.radio.carrier_frequency_hz,
+        station,
+        minimum_elevation_rad=minimum_elevation_rad,
+        time_origin_utc=reference_utc,
+        phase_reference_utc=reference_utc,
+    )
+    state = resample_downlink_state_si(
+        source_state,
+        time_s,
+        config.radio.carrier_frequency_hz,
+        minimum_elevation_rad=minimum_elevation_rad,
+    )
+    frequency_axis = build_ofdm_channel_grid_axes(
+        config.ofdm,
+        config.radio.carrier_frequency_hz,
+        1,
+        symbol_time_reference=config.channel_grid.symbol_time_reference,
+    ).frequency
+    rf_frequency_hz = np.asarray(frequency_axis.rf_frequency_hz)
+    baseband_frequency_hz = np.asarray(frequency_axis.baseband_frequency_hz)
+    free_space_path_loss_db = 20.0 * np.log10(
+        4.0
+        * np.pi
+        * state.slant_range_m[:, None]
+        * rf_frequency_hz[None, :]
+        / SPEED_OF_LIGHT_M_S
+    )
+    magnitude_db = -(free_space_path_loss_db + float(other_losses_db))
+    near_dc = int(np.argmin(np.abs(baseband_frequency_hz)))
+    near_dc_magnitude_db = magnitude_db[:, near_dc]
+    event_labels = np.full(time_s.shape, "", dtype=object)
+    event_records: dict[str, dict[str, float]] = {}
+    for event in EVENT_ORDER:
+        index = int(np.flatnonzero(time_s == event_offsets_s[event])[0])
+        event_labels[index] = event
+        event_records[event] = {
+            "time_from_closest_approach_s": float(time_s[index]),
+            "slant_range_km": float(state.slant_range_m[index] / 1.0e3),
+            "near_dc_channel_magnitude_db": float(
+                near_dc_magnitude_db[index]
+            ),
+        }
+
+    csv_path = output_directory / "magnitude_evolution.csv"
+    npz_path = output_directory / "magnitude_evolution.npz"
+    png_path = output_directory / "magnitude_evolution.png"
+    utc_values = [
+        _iso(reference_utc + timedelta(seconds=float(offset)))
+        for offset in time_s
+    ]
+    pd.DataFrame(
+        {
+            "time_from_closest_approach_s": time_s,
+            "utc": utc_values,
+            "event": event_labels,
+            "slant_range_km": state.slant_range_m / 1.0e3,
+            "elevation_deg": np.rad2deg(state.elevation_rad),
+            "propagation_delay_ms": state.propagation_delay_s * 1.0e3,
+            "radial_velocity_km_s": state.radial_velocity_m_s / 1.0e3,
+            "doppler_shift_hz": state.doppler_shift_hz,
+            "near_dc_channel_magnitude_db": near_dc_magnitude_db,
+            "minimum_frequency_channel_magnitude_db": np.min(
+                magnitude_db,
+                axis=1,
+            ),
+            "maximum_frequency_channel_magnitude_db": np.max(
+                magnitude_db,
+                axis=1,
+            ),
+        }
+    ).to_csv(csv_path, index=False)
+    np.savez_compressed(
+        npz_path,
+        channel_magnitude_db=magnitude_db,
+        time_from_closest_approach_s=time_s,
+        baseband_frequency_hz=baseband_frequency_hz,
+        rf_frequency_hz=rf_frequency_hz,
+        slant_range_m=state.slant_range_m,
+        propagation_delay_s=state.propagation_delay_s,
+        radial_velocity_m_s=state.radial_velocity_m_s,
+        doppler_shift_hz=state.doppler_shift_hz,
+        event_labels=np.asarray(event_labels, dtype="U32"),
+        nominal_observation_step_s=np.asarray(nominal_step_s),
+        model=np.asarray(
+            "long-duration LOS magnitude envelope; not an OFDM-symbol grid"
+        ),
+    )
+    _save_magnitude_evolution_plot(
+        time_s=time_s,
+        frequency_hz=baseband_frequency_hz,
+        magnitude_db=magnitude_db,
+        event_offsets_s=event_offsets_s,
+        path=png_path,
+        nominal_step_s=nominal_step_s,
+    )
+    frequency_span_per_time_db = np.ptp(magnitude_db, axis=1)
+    summary = {
+        "purpose": "long-duration visualization of the LOS magnitude envelope",
+        "time_axis_kind": "coarse observation axis, not OFDM-symbol samples",
+        "nominal_observation_step_s": float(nominal_step_s),
+        "time_range_from_closest_approach_s": [
+            float(time_s[0]),
+            float(time_s[-1]),
+        ],
+        "sample_count": int(time_s.size),
+        "shape": [int(time_s.size), int(baseband_frequency_hz.size)],
+        "event_times_included_exactly": True,
+        "near_dc_signed_subcarrier_index": int(
+            frequency_axis.signed_subcarrier_indices[near_dc]
+        ),
+        "near_dc_magnitude_time_span_db": float(
+            np.ptp(near_dc_magnitude_db)
+        ),
+        "maximum_frequency_magnitude_span_at_one_time_db": float(
+            np.max(frequency_span_per_time_db)
+        ),
+        "events": event_records,
+        "interpretation": (
+            "distance-dependent amplitude changes slowly, so a full-pass "
+            "time axis reveals variation hidden inside a millisecond frame"
+        ),
+    }
+    return summary, csv_path, npz_path, png_path
 
 
 def _save_phase_comparison(
@@ -259,6 +555,7 @@ def run_channel_event_comparison(
     minimum_elevation_deg: float = 10.0,
     symbol_count: int = 256,
     other_losses_db: float = 0.0,
+    magnitude_observation_step_s: float = 0.1,
 ) -> ChannelEventComparisonArtifacts:
     """Generate independent grids and aggregate metrics for three events."""
 
@@ -288,6 +585,21 @@ def run_channel_event_comparison(
         plot_values[event] = event_plot
 
     metrics_frame = pd.DataFrame.from_records(records)
+    (
+        magnitude_summary,
+        magnitude_csv,
+        magnitude_npz,
+        magnitude_png,
+    ) = _save_long_duration_magnitude(
+        output_directory,
+        config=config,
+        omm_record=omm_record,
+        references=references,
+        station=station,
+        minimum_elevation_deg=minimum_elevation_deg,
+        other_losses_db=other_losses_db,
+        nominal_step_s=magnitude_observation_step_s,
+    )
     artifacts = ChannelEventComparisonArtifacts(
         metrics_csv=output_directory / "event_comparison.csv",
         summary_json=output_directory / "event_comparison.json",
@@ -295,6 +607,9 @@ def run_channel_event_comparison(
             output_directory / "event_phase_comparison.png"
         ),
         metrics_png=output_directory / "event_metrics.png",
+        magnitude_evolution_csv=magnitude_csv,
+        magnitude_evolution_npz=magnitude_npz,
+        magnitude_evolution_png=magnitude_png,
     )
     metrics_frame.to_csv(artifacts.metrics_csv, index=False)
     summary = {
@@ -308,6 +623,7 @@ def run_channel_event_comparison(
         "subcarrier_spacing_hz": config.ofdm.subcarrier_spacing_hz,
         "minimum_elevation_deg": float(minimum_elevation_deg),
         "events": records,
+        "long_duration_magnitude_observation": magnitude_summary,
         "interpretation_limits": [
             "each event is an independent frame centred on its own UTC",
             "wrapped phase is sampled once per OFDM symbol",
@@ -315,6 +631,10 @@ def run_channel_event_comparison(
             "carrier_phase_change_cycles uses the unwrapped physical phase",
             "synchronized grids use perfect same-state phase prediction",
             "no OFDM transmitter, receiver, pilot estimator, or ICI model",
+            (
+                "magnitude_evolution uses a coarse display axis; "
+                "it does not replace the per-symbol channel grid"
+            ),
         ],
     }
     artifacts.summary_json.write_text(
@@ -352,6 +672,12 @@ def main() -> None:
     )
     parser.add_argument("--symbol-count", type=int, default=256)
     parser.add_argument("--other-losses-db", type=float, default=0.0)
+    parser.add_argument(
+        "--magnitude-step-s",
+        type=float,
+        default=0.1,
+        help="nominal full-pass magnitude visualization interval",
+    )
     args = parser.parse_args()
 
     config = load_research_baseline(args.config)
@@ -384,6 +710,7 @@ def main() -> None:
         ),
         symbol_count=args.symbol_count,
         other_losses_db=args.other_losses_db,
+        magnitude_observation_step_s=args.magnitude_step_s,
     )
     print(
         json.dumps(

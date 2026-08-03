@@ -201,12 +201,23 @@ summary가 저장된다. 최상위에는 다음 비교 산출물이 생성된다
 | `event_comparison.json` | 모델 범위와 해석 제한을 포함한 비교 요약 |
 | `event_phase_comparison.png` | 세 이벤트 raw wrapped phase heatmap |
 | `event_metrics.png` | 거리·지연·Doppler·프레임 내 carrier phase 변화 비교 |
+| `magnitude_evolution.csv` | 전체 가시 패스에서 시간에 따른 거리·Doppler·near-DC magnitude |
+| `magnitude_evolution.npz` | 긴 관측 시간축과 223개 부반송파의 magnitude grid |
+| `magnitude_evolution.png` | x=시간, y=주파수인 전체 패스 magnitude heatmap과 시간 단면 |
 
 256처럼 짝수 심벌 grid에는 상대시각 0이 두 중앙 심벌 사이에 놓인다. CSV의
 이벤트 기준값은 두 중앙 상태를 상대시각 0으로 선형 보간해 기록하며, 실제
 채널 grid의 균일한 OFDM 심벌 간격은 바꾸지 않는다. 가시 시작과 종료의 큰
 raw Doppler는 심벌당 한 번 표본화한 wrapped phase 그림에서 alias될 수 있다.
 따라서 물리적 누적 위상 변화량은 저장된 unwrapped carrier phase로 계산한다.
+
+기본 256심벌 채널 grid의 평가 구간은 2.125 ms에 불과하다. 이 구간에서도
+거리 변화에 따라 magnitude가 매 심벌 바뀌지만, 가시 시작에서 약
+`6.5e-5 dB`에 그쳐 일반적인 색상축에서는 거의 일정하게 보인다.
+`magnitude_evolution.*`은 같은 FSPL 식을 전체 약 506초 가시 패스에 적용해
+이 느린 변화를 확인하기 위한 별도 관측 산출물이다. 기본 표시 간격은 0.1초이고
+`--magnitude-step-s`로 바꿀 수 있다. 이 간격은 저장량을 줄이기 위한 시각화
+표본 간격이며, OFDM 심벌 간격이나 실제 채널 grid의 시간축을 변경하지 않는다.
 
 ## 채널 상태 재표본화
 
