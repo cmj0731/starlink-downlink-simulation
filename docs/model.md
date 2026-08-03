@@ -738,6 +738,24 @@ raw 채널과 동일한 기준 이벤트와 상수 위상 기준을 사용해야
 잔류 delay/phase 및 예측 label을 저장한다. `synchronization_comparison.png`는
 동일한 시간-주파수축에서 raw wrapped phase와 동기화 후 잔류 phase를 비교한다.
 
+### 19.2 패스 3개 이벤트 비교
+
+`starlink-channel-events`는 가시 시작, 최근접, 가시 종료 UTC를 기존 SGP4
+패스 summary에서 읽고 각 이벤트를 중심으로 동일한 크기의 독립 채널 grid를
+생성한다. 이벤트별 raw/synchronized 산출물은 별도 하위 폴더에 보존한다.
+
+집계 CSV에는 이벤트 기준 거리, 지연, radial velocity, carrier Doppler,
+FSPL과 프레임 동안의 unwrapped carrier phase 변화량을 기록한다. 짝수 개의
+OFDM 심벌은 상대시각 0을 직접 포함하지 않으므로 이벤트 기준 scalar 값은
+0을 사이에 둔 두 중앙 상태를 선형 보간한다. 이는 균일한 OFDM 심벌 grid에
+비균일 이벤트 행을 추가하지 않기 위한 것이다.
+
+가시 시작과 종료에서는 raw Doppler의 절댓값이 OFDM symbol rate의 Nyquist
+범위를 넘을 수 있다. 따라서 심벌 시각에서만 표시한 wrapped phase heatmap은
+시간축 alias를 보일 수 있으며, 이를 심벌 내부 ICI가 계산됐다는 뜻으로
+해석하면 안 된다. 집계된 carrier phase 변화량은 wrapped 그림이 아니라
+경사거리에서 계산한 unwrapped physical phase를 사용한다.
+
 ## 20. SGP4 anchor와 cubic Hermite 재표본화
 
 SGP4는 OMM 궤도요소로 임의의 UTC에서 위성 위치와 속도를 직접 계산하는

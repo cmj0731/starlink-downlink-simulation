@@ -176,6 +176,38 @@ Heatmap은 일반적인 시간-주파수 표처럼 x축을 시간, y축을 주�
 위해 표시할 때만 배열을 전치한다. 저장된 `channel_response` 자체는 바뀌지
 않는다.
 
+## 패스 3개 이벤트 채널 비교
+
+가시 시작, 최근접, 가시 종료에서 같은 크기의 raw/synchronized 채널 grid를
+한 번에 생성하려면 다음 명령을 사용한다.
+
+```powershell
+starlink-channel-events
+```
+
+설치된 command가 아직 갱신되지 않은 환경에서는 다음처럼 모듈로 실행한다.
+
+```powershell
+python -m starlink_isl.channel_event_simulate
+```
+
+기본 출력은 `outputs/channel_events`이다. 각 이벤트 이름의 하위 폴더에는
+독립적인 `channel_grid.npz`, `synchronized_channel_grid.npz`, heatmap 및
+summary가 저장된다. 최상위에는 다음 비교 산출물이 생성된다.
+
+| 파일 | 내용 |
+|---|---|
+| `event_comparison.csv` | 세 이벤트의 거리·지연·radial velocity·Doppler·FSPL·위상 변화량 |
+| `event_comparison.json` | 모델 범위와 해석 제한을 포함한 비교 요약 |
+| `event_phase_comparison.png` | 세 이벤트 raw wrapped phase heatmap |
+| `event_metrics.png` | 거리·지연·Doppler·프레임 내 carrier phase 변화 비교 |
+
+256처럼 짝수 심벌 grid에는 상대시각 0이 두 중앙 심벌 사이에 놓인다. CSV의
+이벤트 기준값은 두 중앙 상태를 상대시각 0으로 선형 보간해 기록하며, 실제
+채널 grid의 균일한 OFDM 심벌 간격은 바꾸지 않는다. 가시 시작과 종료의 큰
+raw Doppler는 심벌당 한 번 표본화한 wrapped phase 그림에서 alias될 수 있다.
+따라서 물리적 누적 위상 변화량은 저장된 unwrapped carrier phase로 계산한다.
+
 ## 채널 상태 재표본화
 
 `resample_downlink_state_si`는 1초 간격 SGP4 anchor 상태를 1 ms 등 임의의
