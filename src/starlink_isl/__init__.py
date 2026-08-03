@@ -91,6 +91,7 @@ from starlink_isl.research_config import (
     ChannelStateSampling,
     OFDMNumerology,
     OFDMPilotLayout,
+    OFDMWaveformNormalization,
     ResearchBaselineConfig,
     load_research_baseline,
 )
@@ -130,6 +131,7 @@ __all__ = [
     "LinkBudgetResult",
     "OFDMNumerology",
     "OFDMPilotLayout",
+    "OFDMWaveformNormalization",
     "OFDMChannelGridAxes",
     "OFDMFrequencyAxis",
     "OFDMTimeAxis",

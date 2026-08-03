@@ -18,9 +18,9 @@ conda activate starlink-isl
 conda env update -f environment.yml --prune
 ```
 
-## 팀 공통 연구 baseline
+## 확정된 팀 통합 baseline v1
 
-OFDM·채널·수신 필터가 서로 다른 수치를 사용하지 않도록 임시 공통 설정을
+OFDM·채널·수신 필터가 서로 다른 수치를 사용하지 않도록 확정된 공통 설정을
 `configs/ofdm_baseline.yaml`에 둔다. 이 파일은 실제 Starlink 독점 파형
 규격을 나타내지 않으며, 팀 통합과 비교 실험을 위한 명시적인 연구 가정이다.
 
@@ -36,7 +36,7 @@ f_s=N_{\mathrm{FFT}}\Delta f,
 B_{\mathrm{occupied}}\approx K_{\mathrm{active}}\Delta f
 \]
 
-현재 임시 baseline은 다음과 같다.
+현재 팀 통합 baseline v1은 다음과 같다.
 
 | 항목 | 값 |
 |---|---:|
@@ -57,11 +57,23 @@ B_{\mathrm{occupied}}\approx K_{\mathrm{active}}\Delta f
 | 부반송파 인덱스 | signed FFT index, 파형 배열은 `fftshift` 순서 |
 | 파일럿 배치 | 주파수 comb, 활성 부반송파 기준 간격 16 |
 | 파일럿/데이터 부반송파 | 15 / 208 |
+| 파형 정규화 | unit-energy QPSK/pilot, 시간영역 평균전력 1 |
 
 NFFT, spacing, no-CP, 활성 부반송파와 pilot 배치는 민영 님의 송수신기와
-맞췄다. 심벌 평가 기준과 파형 정규화는 최종 통합 전에 확인하며 YAML의
-`team_confirmation.fields`에 표시한다. 기존 10 GHz
+맞췄다. 심벌 평가 기준은 FFT 구간 중앙으로, 파형 정규화는 기본 IFFT 뒤
+`NFFT/sqrt(K_active)` 배율을 적용하는 것으로 확정했다. YAML에는 더 이상
+미확정 필드가 없다. 기존 10 GHz
 ideal·SGP4 산출물은 재현성 보존을 위해 이 설정으로 자동 변경하지 않는다.
+
+팀원이 사용할 기계 판독형 계약과 223개 채널 열의 FFT bin 매핑은 다음
+명령으로 생성한다.
+
+```powershell
+starlink-team-interface
+```
+
+결합 규칙 전체는 [팀 OFDM·채널 통합 계약](docs/team_integration_contract.md)에
+정리되어 있다.
 
 ## OFDM 채널 grid 축
 

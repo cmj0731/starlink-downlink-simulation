@@ -531,11 +531,11 @@ P_{n,\rm out}\simeq kT_{\rm sys}B_{\rm eq}
 때는 반환된 `final_state`를 다음 호출의 `initial_state`로 전달해 필터 기억을
 유지한다.
 
-## 17. 임시 OFDM 연구 baseline
+## 17. 팀 통합 OFDM 연구 baseline v1
 
-팀 통합 전 채널 grid와 수신 필터를 개발하기 위한 공통 가정을
+채널 grid와 수신 필터를 결합하기 위한 공통 가정을
 `configs/ofdm_baseline.yaml`에 기록한다. 이 설정은 실제 Starlink 파형
-규격에 대한 주장이 아니며 `scenario.status: provisional`과
+규격에 대한 주장이 아니며 `scenario.status: team_integration_v1`과
 `represents_actual_starlink_waveform: false`로 경계를 명시한다.
 
 민영 님의 no-CP 송수신기에 맞춘 연구 numerology는
@@ -587,7 +587,17 @@ T_{\rm OFDM}
 - 실험 spacing 후보에 baseline spacing이 없는 경우
 
 NFFT, spacing, no-CP, 활성 부반송파 및 pilot 배치는 팀 송수신기에 맞췄다.
-파형 정규화와 심벌 평가 기준은 최종 통합 전에 확인한다.
+심벌 평가 기준은 유효 FFT 구간 중앙으로 확정했다. 데이터 QPSK의 평균 심벌
+에너지와 pilot 크기는 1이고, NumPy 기본 IFFT 뒤에는
+
+\[
+G_{\rm IFFT}=\frac{N_{\rm FFT}}{\sqrt{K_{\rm active}}}
+\]
+
+를 곱한다. 모든 활성 열이 단위 에너지이면 시간영역 복소 포락선의 평균전력이
+1이 된다. 물리 송신전력은 채널 모듈에서 별도로 적용한다. 따라서
+`team_confirmation.required_before_final_integration`는 `false`이고 남은
+확인 필드는 없다.
 
 ## 18. OFDM 채널 grid의 시간·주파수 축
 
@@ -632,8 +642,7 @@ t_m=t_{\mathrm{frame}}+mT_{\mathrm{OFDM}}
 \]
 
 이는 채널이 한 심벌 동안 거의 일정하다는 근사에서 FFT 구간을 대표하는
-명확한 시각이다. 필요하면 `symbol_start` 또는 `fft_window_start`로 바꿀 수
-있으나 송수신기와 통합할 때 동일한 기준을 사용해야 한다.
+명확한 시각이다. v1 팀 인터페이스에서는 이 기준을 변경하지 않는다.
 
 1 ms 채널 상태 갱신 간격과 약 8.333 us OFDM 심벌 간격은 서로 다른 목적의
 시간축이다. 1 ms는 전체 패스 기록 및 블록 채널 상태의 기준 간격이고,
@@ -647,8 +656,10 @@ t_m=t_{\mathrm{frame}}+mT_{\mathrm{OFDM}}
 - `OFDMFrequencyAxis`: signed index, 자연/shifted FFT bin, baseband/RF 주파수
 - `OFDMChannelGridAxes.shape`: `(symbol_count, active_subcarrier_count)`
 
-활성 부반송파 배치는 송수신기와 맞췄으며 심벌 평가 기준은 최종 통합 확인
-항목으로 `team_confirmation.fields`에 남겨 둔다.
+활성 부반송파 배치, 심벌 평가 기준과 파형 정규화가 모두 v1 계약으로
+확정되었다. 전체 필드·단위·부호와 역할 경계는
+`docs/team_integration_contract.md`에 기록하고 `starlink-team-interface`
+명령으로 JSON manifest와 주파수 매핑 CSV를 생성한다.
 
 ## 19. 복소 SISO OFDM 채널 grid
 

@@ -271,6 +271,45 @@ class OFDMPilotLayout:
 
 
 @dataclass(frozen=True, slots=True)
+class OFDMWaveformNormalization:
+    """Team contract for mapping unit-energy symbols to waveform samples."""
+
+    data_symbol_average_energy: float
+    pilot_symbol_magnitude: float
+    ifft_convention: str
+    time_domain_scale: str
+    channel_input_average_power: float
+
+    def __post_init__(self) -> None:
+        for name, value in (
+            ("data_symbol_average_energy", self.data_symbol_average_energy),
+            ("pilot_symbol_magnitude", self.pilot_symbol_magnitude),
+            ("channel_input_average_power", self.channel_input_average_power),
+        ):
+            if not np.isfinite(value) or value <= 0.0:
+                raise ValueError(
+                    f"ofdm.waveform_normalization.{name} must be positive"
+                )
+        if self.ifft_convention != "numpy_backward":
+            raise ValueError(
+                "ofdm.waveform_normalization.ifft_convention must be "
+                "numpy_backward"
+            )
+        if self.time_domain_scale != "nfft_over_sqrt_active_subcarriers":
+            raise ValueError(
+                "ofdm.waveform_normalization.time_domain_scale must be "
+                "nfft_over_sqrt_active_subcarriers"
+            )
+
+    def ifft_scale(self, numerology: OFDMNumerology) -> float:
+        """Scale a default NumPy IFFT to unit mean time-domain power."""
+
+        return numerology.fft_size / np.sqrt(
+            numerology.active_subcarrier_count
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class ChannelStateSampling:
     """Orbit-state source and time-varying channel update assumptions."""
 
@@ -384,6 +423,16 @@ class TeamConfirmation:
     required_before_final_integration: bool
     fields: tuple[str, ...]
 
+    def __post_init__(self) -> None:
+        if self.required_before_final_integration and not self.fields:
+            raise ValueError(
+                "team_confirmation.fields must identify pending decisions"
+            )
+        if not self.required_before_final_integration and self.fields:
+            raise ValueError(
+                "team_confirmation.fields must be empty after confirmation"
+            )
+
 
 @dataclass(frozen=True, slots=True)
 class ResearchBaselineConfig:
@@ -394,6 +443,7 @@ class ResearchBaselineConfig:
     radio: RadioBaseline
     ofdm: OFDMNumerology
     pilot: OFDMPilotLayout
+    waveform_normalization: OFDMWaveformNormalization
     channel_state: ChannelStateSampling
     channel_grid: ChannelGridBaseline
     receiver_filter: ReceiverFilterBaseline
@@ -436,6 +486,7 @@ def load_research_baseline(path: str | Path) -> ResearchBaselineConfig:
     radio = _mapping(raw, "radio")
     ofdm = _mapping(raw, "ofdm")
     pilot = _mapping(ofdm, "pilot")
+    waveform_normalization = _mapping(ofdm, "waveform_normalization")
     channel = _mapping(raw, "channel_state")
     channel_grid = _mapping(raw, "channel_grid")
     receiver_filter = _mapping(raw, "receiver_filter")
@@ -514,6 +565,33 @@ def load_research_baseline(path: str | Path) -> ResearchBaselineConfig:
                 pilot,
                 "fftshift_bin_indices",
                 "ofdm.pilot",
+            ),
+        ),
+        waveform_normalization=OFDMWaveformNormalization(
+            data_symbol_average_energy=_float_value(
+                waveform_normalization,
+                "data_symbol_average_energy",
+                "ofdm.waveform_normalization",
+            ),
+            pilot_symbol_magnitude=_float_value(
+                waveform_normalization,
+                "pilot_symbol_magnitude",
+                "ofdm.waveform_normalization",
+            ),
+            ifft_convention=_str_value(
+                waveform_normalization,
+                "ifft_convention",
+                "ofdm.waveform_normalization",
+            ),
+            time_domain_scale=_str_value(
+                waveform_normalization,
+                "time_domain_scale",
+                "ofdm.waveform_normalization",
+            ),
+            channel_input_average_power=_float_value(
+                waveform_normalization,
+                "channel_input_average_power",
+                "ofdm.waveform_normalization",
             ),
         ),
         channel_state=ChannelStateSampling(
@@ -624,6 +702,24 @@ def main() -> None:
             ),
             "pilot_subcarrier_count": config.pilot.pilot_subcarrier_count,
             "fftshift_bin_indices": config.pilot.fftshift_bin_indices,
+        },
+        "waveform_normalization": {
+            "data_symbol_average_energy": (
+                config.waveform_normalization.data_symbol_average_energy
+            ),
+            "pilot_symbol_magnitude": (
+                config.waveform_normalization.pilot_symbol_magnitude
+            ),
+            "ifft_convention": config.waveform_normalization.ifft_convention,
+            "time_domain_scale": (
+                config.waveform_normalization.time_domain_scale
+            ),
+            "ifft_scale": config.waveform_normalization.ifft_scale(
+                config.ofdm
+            ),
+            "channel_input_average_power": (
+                config.waveform_normalization.channel_input_average_power
+            ),
         },
         "channel_grid": {
             "time_axis": config.channel_grid.time_axis,

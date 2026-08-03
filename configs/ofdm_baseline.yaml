@@ -2,7 +2,7 @@ schema_version: 1
 
 scenario:
   name: ku_leo_ofdm_baseline
-  status: provisional
+  status: team_integration_v1
   represents_actual_starlink_waveform: false
   description: >-
     Team integration and channel-research baseline. These values are explicit
@@ -39,6 +39,12 @@ ofdm:
       - 209
       - 225
       - 239
+  waveform_normalization:
+    data_symbol_average_energy: 1.0
+    pilot_symbol_magnitude: 1.0
+    ifft_convention: numpy_backward
+    time_domain_scale: nfft_over_sqrt_active_subcarriers
+    channel_input_average_power: 1.0
 
 channel_grid:
   time_axis: ofdm_symbol
@@ -79,7 +85,5 @@ experiments:
     - 25.0
 
 team_confirmation:
-  required_before_final_integration: true
-  fields:
-    - channel_grid.symbol_time_reference
-    - ofdm.waveform_normalization
+  required_before_final_integration: false
+  fields: []

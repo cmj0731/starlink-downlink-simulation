@@ -30,10 +30,10 @@ def _write_config(tmp_path, mapping):
     return path
 
 
-def test_provisional_baseline_loads_with_expected_derived_numerology():
+def test_team_baseline_loads_with_expected_derived_numerology():
     config = load_research_baseline(BASELINE_PATH)
 
-    assert config.scenario.status == "provisional"
+    assert config.scenario.status == "team_integration_v1"
     assert config.scenario.represents_actual_starlink_waveform is False
     assert config.radio.link_direction == "downlink"
     assert config.radio.carrier_frequency_hz == pytest.approx(11.7e9)
@@ -74,6 +74,25 @@ def test_provisional_baseline_loads_with_expected_derived_numerology():
         config.ofdm.active_subcarrier_count
         - config.pilot.pilot_subcarrier_count
         == 208
+    )
+    assert (
+        config.waveform_normalization.data_symbol_average_energy
+        == pytest.approx(1.0)
+    )
+    assert config.waveform_normalization.pilot_symbol_magnitude == pytest.approx(
+        1.0
+    )
+    assert config.waveform_normalization.ifft_convention == "numpy_backward"
+    assert (
+        config.waveform_normalization.time_domain_scale
+        == "nfft_over_sqrt_active_subcarriers"
+    )
+    assert config.waveform_normalization.ifft_scale(config.ofdm) == pytest.approx(
+        256.0 / np.sqrt(223.0)
+    )
+    assert (
+        config.waveform_normalization.channel_input_average_power
+        == pytest.approx(1.0)
     )
 
 
@@ -117,16 +136,29 @@ def test_baseline_receiver_filter_is_compatible_with_ofdm_bandwidth():
     assert abs(response[1]) < 0.01
 
 
-def test_baseline_marks_fields_requiring_team_confirmation():
+def test_baseline_has_no_pending_team_confirmation_fields():
     config = load_research_baseline(BASELINE_PATH)
 
-    assert config.team_confirmation.required_before_final_integration is True
-    assert "ofdm.active_subcarrier_layout" not in config.team_confirmation.fields
-    assert "channel_grid.symbol_time_reference" in (
-        config.team_confirmation.fields
-    )
-    assert "ofdm.pilot_layout" not in config.team_confirmation.fields
-    assert "ofdm.waveform_normalization" in config.team_confirmation.fields
+    assert config.team_confirmation.required_before_final_integration is False
+    assert config.team_confirmation.fields == ()
+
+
+def test_config_rejects_unsupported_waveform_normalization(tmp_path):
+    mapping = _baseline_mapping()
+    mapping["ofdm"]["waveform_normalization"]["time_domain_scale"] = "none"
+
+    with pytest.raises(ValueError, match="time_domain_scale"):
+        load_research_baseline(_write_config(tmp_path, mapping))
+
+
+def test_config_rejects_pending_fields_when_confirmation_is_false(tmp_path):
+    mapping = _baseline_mapping()
+    mapping["team_confirmation"]["fields"] = [
+        "ofdm.waveform_normalization"
+    ]
+
+    with pytest.raises(ValueError, match="must be empty"):
+        load_research_baseline(_write_config(tmp_path, mapping))
 
 
 def test_config_rejects_pilot_on_null_dc_bin(tmp_path):
