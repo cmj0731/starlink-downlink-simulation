@@ -538,39 +538,39 @@ P_{n,\rm out}\simeq kT_{\rm sys}B_{\rm eq}
 규격에 대한 주장이 아니며 `scenario.status: provisional`과
 `represents_actual_starlink_waveform: false`로 경계를 명시한다.
 
-초기 numerology는
+민영 님의 no-CP 송수신기에 맞춘 연구 numerology는
 
 \[
 f_{\rm carrier}=11.7\ {\rm GHz},\quad
 N_{\rm FFT}=256,\quad
-\Delta f=30\ {\rm kHz},\quad
-K_{\rm active}=200,\quad
-N_{\rm CP}=32
+\Delta f=120\ {\rm kHz},\quad
+K_{\rm active}=223,\quad
+N_{\rm CP}=0
 \]
 
 이다. 독립 입력으로부터 계산되는 값은
 
 \[
-f_s=N_{\rm FFT}\Delta f=7.68\ {\rm MHz}
+f_s=N_{\rm FFT}\Delta f=30.72\ {\rm MHz}
 \]
 
 \[
-T_s=\frac{1}{f_s}\simeq130.21\ {\rm ns}
+T_s=\frac{1}{f_s}\simeq32.552\ {\rm ns}
 \]
 
 \[
-B_{\rm occupied}\simeq K_{\rm active}\Delta f=6\ {\rm MHz}
+B_{\rm occupied}\simeq K_{\rm active}\Delta f=26.76\ {\rm MHz}
 \]
 
 \[
 T_{\rm OFDM}
 =\frac{N_{\rm FFT}+N_{\rm CP}}{f_s}
-=37.5\ {\rm us}
+=8.333\ {\rm us}
 \]
 
-이다. 수신 필터의 임시 통과대역 끝은 3.1 MHz, 저지대역 시작은
-3.6 MHz로 두어 6 MHz 점유대역을 포함하고 3.84 MHz Nyquist 주파수보다
-낮게 둔다.
+이다. 수신 필터의 임시 통과대역 끝은 13.5 MHz, 저지대역 시작은
+14.7 MHz로 두어 활성 부반송파 중심 범위를 포함하고 15.36 MHz Nyquist
+주파수보다 낮게 둔다.
 
 원본 SGP4 기하 상태는 1초 간격이고 채널 갱신 간격은 1 ms로 가정한다.
 두 시간축 사이는 cubic Hermite 재표본화를 사용하고, 이후 직접 SGP4를
@@ -586,8 +586,8 @@ T_{\rm OFDM}
 - 채널 갱신 간격이 원본 기하 상태 간격보다 긴 경우
 - 실험 spacing 후보에 baseline spacing이 없는 경우
 
-정확한 활성 부반송파 배치, pilot, 파형 정규화 및 최종 numerology는 팀
-합의 후 YAML 값만 변경한다. 채널 코드는 이 값들을 하드코딩하지 않는다.
+NFFT, spacing, no-CP 및 활성 부반송파 배치는 팀 송수신기에 맞췄다. pilot,
+파형 정규화와 심벌 평가 기준은 최종 통합 전에 확인한다.
 
 ## 18. OFDM 채널 grid의 시간·주파수 축
 
@@ -602,17 +602,16 @@ f_k=k\Delta f,\qquad
 f_{\mathrm{RF},k}=f_{\mathrm{carrier}}+k\Delta f
 \]
 
-현재 임시 DC-null 배치는
+현재 팀 기준 DC-null 배치는
 
 \[
-k\in\{-100,\ldots,-1,1,\ldots,100\}
+k\in\{-112,\ldots,-1,1,\ldots,111\}
 \]
 
-이며, FFT 배열 접근용 index는 `k mod N_FFT`로 별도 제공한다. 따라서
-signed index `-100`은 `N_FFT=256`일 때 FFT bin `156`에 해당한다. signed
-index는 물리 주파수 계산에, FFT bin index는 민영님의 FFT 배열 연결에
-사용한다. 명시적인 index 배열을 함수에 넘기면 최종 팀 배치를 그대로 쓸
-수 있다.
+이다. 민영 님의 `fftshift` 배열에서는 16번부터 239번까지 사용하되 중앙
+128번 DC를 비운 결과다. 자연 FFT 배열 접근용 index `k mod N_FFT`와
+shifted 배열 접근용 `fftshift_bin_indices`를 모두 제공한다. 예를 들어
+signed index `-112`는 자연 FFT bin 144, shifted bin 16에 해당한다.
 
 한 심벌을 대표하는 채널 시각은 기본적으로 CP가 끝난 뒤 유효 FFT 구간의
 중앙으로 정의한다.
@@ -626,7 +625,7 @@ t_m=t_{\mathrm{frame}}+mT_{\mathrm{OFDM}}
 명확한 시각이다. 필요하면 `symbol_start` 또는 `fft_window_start`로 바꿀 수
 있으나 송수신기와 통합할 때 동일한 기준을 사용해야 한다.
 
-1 ms 채널 상태 갱신 간격과 37.5 us OFDM 심벌 간격은 서로 다른 목적의
+1 ms 채널 상태 갱신 간격과 약 8.333 us OFDM 심벌 간격은 서로 다른 목적의
 시간축이다. 1 ms는 전체 패스 기록 및 블록 채널 상태의 기준 간격이고,
 `H[m,k]`를 만들 때는 Hermite 상태를 각 OFDM 심벌 평가 시각에 다시 표본화한다.
 따라서 최종 grid의 시간 차원은 1 ms 간격으로 제한되지 않는다. 전체 패스의
@@ -635,11 +634,11 @@ t_m=t_{\mathrm{frame}}+mT_{\mathrm{OFDM}}
 현재 코드가 확정한 인터페이스는 다음과 같다.
 
 - `OFDMTimeAxis`: 심벌 번호, 심벌 시작 시각, 채널 평가 시각
-- `OFDMFrequencyAxis`: signed index, FFT bin, baseband/RF 주파수
+- `OFDMFrequencyAxis`: signed index, 자연/shifted FFT bin, baseband/RF 주파수
 - `OFDMChannelGridAxes.shape`: `(symbol_count, active_subcarrier_count)`
 
-활성 부반송파 배치와 심벌 평가 기준은 아직 provisional이며
-`team_confirmation.fields`에 남겨 둔다.
+활성 부반송파 배치는 송수신기와 맞췄으며 심벌 평가 기준은 최종 통합 확인
+항목으로 `team_confirmation.fields`에 남겨 둔다.
 
 ## 19. 복소 SISO OFDM 채널 grid
 
@@ -672,7 +671,7 @@ L_{\mathrm{FSPL}}[m,k]
 \right)
 \]
 
-로 계산한다. 6 MHz 대역은 11.7 GHz 반송파에 비해 매우 좁으므로 주파수에
+로 계산한다. 26.76 MHz 대역은 11.7 GHz 반송파에 비해 좁으므로 주파수에
 따른 진폭 차이는 작지만, 실제 RF 주파수별 값을 계산해 근사를 숨기지 않는다.
 
 `phi_D[m]`은 SGP4/Hermite 경사거리로부터 얻은 반송파 Doppler 위상이다.
@@ -691,7 +690,8 @@ L_{\mathrm{FSPL}}[m,k]
   절대 위성 전파시간 자체를 흡수하는 장치가 아니다.
 - 현재 결과에는 multipath, 안테나 이득, beamforming 및 AWGN이 없다.
 
-`channel_grid.npz`에는 복소 채널과 함께 시간축, signed/FFT-bin 주파수축,
+`channel_grid.npz`에는 복소 채널과 함께 시간축, signed/자연 FFT/shifted FFT
+주파수축,
 거리, 지연, radial velocity, Doppler, FSPL 및 위상 항을 저장한다. CSV는
 두 축을 사람이 읽기 위한 파일이고 PNG는 크기·wrapped phase heatmap과
 단면을 보여준다. 전체 가시 패스의 모든 OFDM 심벌을 한 번에 저장하면 매우

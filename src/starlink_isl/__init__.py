@@ -20,6 +20,7 @@ from starlink_isl.channel_grid import (
     build_ofdm_frequency_axis,
     build_ofdm_time_axis,
     centered_active_subcarrier_indices,
+    fftshift_guard_active_subcarrier_indices,
 )
 from starlink_isl.downlink_dynamics import (
     SPEED_OF_LIGHT_KM_S,
@@ -147,6 +148,7 @@ __all__ = [
     "build_ofdm_frequency_axis",
     "build_ofdm_time_axis",
     "centered_active_subcarrier_indices",
+    "fftshift_guard_active_subcarrier_indices",
     "compensate_cfo",
     "compensate_siso_channel_doppler",
     "compensate_siso_channel_sequence_doppler",

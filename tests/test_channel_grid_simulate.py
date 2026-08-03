@@ -44,13 +44,18 @@ def test_channel_grid_simulation_writes_viewable_artifacts(tmp_path):
         assert path.stat().st_size > 0
 
     with np.load(artifacts.channel_grid_npz, allow_pickle=False) as saved:
-        assert saved["channel_response"].shape == (16, 200)
+        assert saved["channel_response"].shape == (16, 223)
         assert saved["time_s"][0] < 0.0 < saved["time_s"][-1]
     time_axis = pd.read_csv(artifacts.time_axis_csv)
     frequency_axis = pd.read_csv(artifacts.frequency_axis_csv)
     assert len(time_axis) == 16
-    assert len(frequency_axis) == 200
+    assert len(frequency_axis) == 223
+    shifted_endpoints = (
+        frequency_axis["fftshift_bin_index"].iloc[[0, -1]].tolist()
+    )
+    assert shifted_endpoints == [16, 239]
     summary = json.loads(artifacts.summary_json.read_text(encoding="utf-8"))
-    assert summary["shape"] == [16, 200]
+    assert summary["shape"] == [16, 223]
+    assert summary["waveform_bin_order"] == "fftshifted"
     assert summary["norad_catalog_id"] == 55296
     assert summary["scope_limitations"][1].startswith("within-symbol Doppler")

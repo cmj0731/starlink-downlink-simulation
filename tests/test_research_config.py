@@ -37,13 +37,19 @@ def test_provisional_baseline_loads_with_expected_derived_numerology():
     assert config.scenario.represents_actual_starlink_waveform is False
     assert config.radio.link_direction == "downlink"
     assert config.radio.carrier_frequency_hz == pytest.approx(11.7e9)
-    assert config.ofdm.sample_rate_hz == pytest.approx(7.68e6)
-    assert config.ofdm.sample_period_s == pytest.approx(1.0 / 7.68e6)
-    assert config.ofdm.occupied_bandwidth_hz == pytest.approx(6.0e6)
-    assert config.ofdm.total_guard_bandwidth_hz == pytest.approx(1.68e6)
-    assert config.ofdm.useful_symbol_duration_s == pytest.approx(1.0 / 30.0e3)
-    assert config.ofdm.cyclic_prefix_duration_s == pytest.approx(32 / 7.68e6)
-    assert config.ofdm.total_symbol_duration_s == pytest.approx(37.5e-6)
+    assert config.ofdm.sample_rate_hz == pytest.approx(30.72e6)
+    assert config.ofdm.sample_period_s == pytest.approx(1.0 / 30.72e6)
+    assert config.ofdm.occupied_bandwidth_hz == pytest.approx(26.76e6)
+    assert config.ofdm.total_guard_bandwidth_hz == pytest.approx(3.96e6)
+    assert config.ofdm.useful_symbol_duration_s == pytest.approx(1.0 / 120.0e3)
+    assert config.ofdm.cyclic_prefix_duration_s == 0.0
+    assert config.ofdm.total_symbol_duration_s == pytest.approx(1.0 / 120.0e3)
+    assert config.ofdm.cyclic_prefix_samples == 0
+    assert 1.0e-3 / config.ofdm.total_symbol_duration_s == pytest.approx(120.0)
+    assert (
+        config.ofdm.active_subcarrier_layout
+        == "minyoung_fftshift_guard16_dc_null"
+    )
 
 
 def test_baseline_separates_geometry_source_and_channel_update_intervals():
@@ -56,6 +62,7 @@ def test_baseline_separates_geometry_source_and_channel_update_intervals():
     assert config.channel_grid.time_axis == "ofdm_symbol"
     assert config.channel_grid.symbol_time_reference == "fft_window_center"
     assert config.channel_grid.subcarrier_index_convention == "signed_fft"
+    assert config.channel_grid.waveform_bin_order == "fftshifted"
 
 
 def test_baseline_receiver_filter_is_compatible_with_ofdm_bandwidth():
@@ -89,7 +96,7 @@ def test_baseline_marks_fields_requiring_team_confirmation():
     config = load_research_baseline(BASELINE_PATH)
 
     assert config.team_confirmation.required_before_final_integration is True
-    assert "ofdm.active_subcarrier_layout" in config.team_confirmation.fields
+    assert "ofdm.active_subcarrier_layout" not in config.team_confirmation.fields
     assert "channel_grid.symbol_time_reference" in (
         config.team_confirmation.fields
     )
@@ -125,6 +132,14 @@ def test_config_rejects_unsupported_channel_grid_convention(tmp_path):
     mapping["channel_grid"]["subcarrier_index_convention"] = "fftshifted"
 
     with pytest.raises(ValueError, match="signed_fft"):
+        load_research_baseline(_write_config(tmp_path, mapping))
+
+
+def test_config_rejects_unsupported_waveform_bin_order(tmp_path):
+    mapping = _baseline_mapping()
+    mapping["channel_grid"]["waveform_bin_order"] = "natural_fft"
+
+    with pytest.raises(ValueError, match="waveform_bin_order"):
         load_research_baseline(_write_config(tmp_path, mapping))
 
 

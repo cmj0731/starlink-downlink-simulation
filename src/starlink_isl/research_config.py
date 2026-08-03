@@ -216,6 +216,7 @@ class ChannelGridBaseline:
     time_axis: str
     symbol_time_reference: str
     subcarrier_index_convention: str
+    waveform_bin_order: str
 
     def __post_init__(self) -> None:
         if self.time_axis != "ofdm_symbol":
@@ -231,6 +232,10 @@ class ChannelGridBaseline:
         if self.subcarrier_index_convention != "signed_fft":
             raise ValueError(
                 "channel_grid.subcarrier_index_convention must be signed_fft"
+            )
+        if self.waveform_bin_order != "fftshifted":
+            raise ValueError(
+                "channel_grid.waveform_bin_order must be fftshifted"
             )
 
 
@@ -445,6 +450,11 @@ def load_research_baseline(path: str | Path) -> ResearchBaselineConfig:
                 "subcarrier_index_convention",
                 "channel_grid",
             ),
+            waveform_bin_order=_str_value(
+                channel_grid,
+                "waveform_bin_order",
+                "channel_grid",
+            ),
         ),
         receiver_filter=ReceiverFilterBaseline(
             passband_edge_hz=_float_value(
@@ -511,6 +521,7 @@ def main() -> None:
             "subcarrier_index_convention": (
                 config.channel_grid.subcarrier_index_convention
             ),
+            "waveform_bin_order": config.channel_grid.waveform_bin_order,
         },
         "team_confirmation_required": (
             config.team_confirmation.required_before_final_integration

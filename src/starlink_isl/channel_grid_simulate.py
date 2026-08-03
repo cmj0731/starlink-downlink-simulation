@@ -154,6 +154,7 @@ def _save_axes_csv(
                 axes.frequency.signed_subcarrier_indices
             ),
             "fft_bin_index": axes.frequency.fft_bin_indices,
+            "fftshift_bin_index": axes.frequency.fftshift_bin_indices,
             "baseband_frequency_hz": axes.frequency.baseband_frequency_hz,
             "rf_frequency_hz": axes.frequency.rf_frequency_hz,
         }
@@ -320,6 +321,8 @@ def _summary(
         "subcarrier_spacing_hz": (
             grid.axes.frequency.subcarrier_spacing_hz
         ),
+        "active_subcarrier_layout": config.ofdm.active_subcarrier_layout,
+        "waveform_bin_order": config.channel_grid.waveform_bin_order,
         "symbol_time_reference": grid.axes.time.symbol_time_reference,
         "symbol_duration_s": grid.axes.time.total_symbol_duration_s,
         "time_range_s": [

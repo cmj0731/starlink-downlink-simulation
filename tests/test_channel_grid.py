@@ -9,6 +9,7 @@ from starlink_isl import (
     build_ofdm_frequency_axis,
     build_ofdm_time_axis,
     centered_active_subcarrier_indices,
+    fftshift_guard_active_subcarrier_indices,
     load_research_baseline,
 )
 
@@ -23,25 +24,29 @@ def baseline():
     return load_research_baseline(BASELINE_PATH)
 
 
-def test_baseline_frequency_axis_has_explicit_centered_dc_null_layout(baseline):
+def test_baseline_frequency_axis_matches_team_fftshift_layout(baseline):
     axis = build_ofdm_frequency_axis(
         baseline.ofdm,
         baseline.radio.carrier_frequency_hz,
     )
 
-    expected_indices = np.concatenate((np.arange(-100, 0), np.arange(1, 101)))
+    expected_indices = np.concatenate((np.arange(-112, 0), np.arange(1, 112)))
     assert np.array_equal(axis.signed_subcarrier_indices, expected_indices)
-    assert axis.subcarrier_count == 200
+    assert axis.subcarrier_count == 223
     assert 0 not in axis.signed_subcarrier_indices
-    assert axis.fft_bin_indices[0] == 156
-    assert axis.fft_bin_indices[99] == 255
-    assert axis.fft_bin_indices[100] == 1
-    assert axis.fft_bin_indices[-1] == 100
+    assert axis.fft_bin_indices[0] == 144
+    assert axis.fft_bin_indices[111] == 255
+    assert axis.fft_bin_indices[112] == 1
+    assert axis.fft_bin_indices[-1] == 111
+    assert axis.fftshift_bin_indices[0] == 16
+    assert axis.fftshift_bin_indices[111] == 127
+    assert axis.fftshift_bin_indices[112] == 129
+    assert axis.fftshift_bin_indices[-1] == 239
     assert axis.baseband_frequency_hz[[0, -1]] == pytest.approx(
-        [-3.0e6, 3.0e6]
+        [-13.44e6, 13.32e6]
     )
     assert axis.rf_frequency_hz[[0, -1]] == pytest.approx(
-        [11.697e9, 11.703e9]
+        [11.68656e9, 11.71332e9]
     )
 
 
@@ -59,13 +64,13 @@ def test_time_axis_uses_fft_window_center_and_total_symbol_spacing(baseline):
     )
     assert np.array_equal(axis.symbol_indices, [0, 1, 2])
     assert axis.symbol_start_time_s == pytest.approx(
-        10.0 + np.arange(3) * 37.5e-6
+        10.0 + np.arange(3) / 120.0e3
     )
     assert axis.reference_offset_s == pytest.approx(expected_offset_s)
     assert axis.time_s == pytest.approx(
         axis.symbol_start_time_s + expected_offset_s
     )
-    assert np.diff(axis.time_s) == pytest.approx([37.5e-6, 37.5e-6])
+    assert np.diff(axis.time_s) == pytest.approx([1 / 120.0e3] * 2)
 
 
 @pytest.mark.parametrize(
@@ -110,15 +115,16 @@ def test_combined_grid_shape_is_symbol_by_active_subcarrier(baseline):
         symbol_time_reference=baseline.channel_grid.symbol_time_reference,
     )
 
-    assert axes.shape == (8, 200)
+    assert axes.shape == (8, 223)
     assert axes.time.symbol_count == 8
-    assert axes.frequency.subcarrier_count == 200
+    assert axes.frequency.subcarrier_count == 223
 
 
 def test_explicit_signed_indices_override_named_layout(baseline):
-    explicit = centered_active_subcarrier_indices(
+    explicit = fftshift_guard_active_subcarrier_indices(
         baseline.ofdm.fft_size,
-        baseline.ofdm.active_subcarrier_count,
+        left_guard_bins=16,
+        right_guard_bins=16,
         dc_subcarrier_null=True,
     )
     axis = build_ofdm_frequency_axis(
@@ -146,15 +152,15 @@ def test_pending_layout_cannot_silently_create_a_frequency_axis(baseline):
 @pytest.mark.parametrize(
     ("indices", "error_type", "match"),
     [
-        (np.arange(200, dtype=float), TypeError, "integers"),
-        (np.arange(-99, 101), ValueError, "DC subcarrier"),
+        (np.arange(223, dtype=float), TypeError, "integers"),
+        (np.arange(-111, 112), ValueError, "DC subcarrier"),
         (
-            np.concatenate((np.arange(-100, 0), np.arange(1, 100))),
+            np.concatenate((np.arange(-112, 0), np.arange(1, 111))),
             ValueError,
             "size",
         ),
         (
-            np.concatenate((np.arange(-99, 0), [1, 1], np.arange(2, 101))),
+            np.concatenate((np.arange(-111, 0), [1, 1], np.arange(2, 112))),
             ValueError,
             "strictly increasing",
         ),
@@ -183,3 +189,14 @@ def test_grid_axes_arrays_are_read_only(baseline):
 
     assert axes.time.time_s.flags.writeable is False
     assert axes.frequency.signed_subcarrier_indices.flags.writeable is False
+    assert axes.frequency.fftshift_bin_indices.flags.writeable is False
+
+
+def test_legacy_centered_layout_helper_remains_available():
+    indices = centered_active_subcarrier_indices(
+        256,
+        200,
+        dc_subcarrier_null=True,
+    )
+
+    assert indices[[0, -1]].tolist() == [-100, 100]

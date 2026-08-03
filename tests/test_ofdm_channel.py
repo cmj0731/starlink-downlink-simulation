@@ -47,7 +47,7 @@ def _ideal_grid(baseline, *, symbol_count=8, other_losses_db=0.0):
 def test_siso_grid_has_expected_shape_and_finite_complex_values(baseline):
     grid = _ideal_grid(baseline)
 
-    assert grid.shape == (8, 200)
+    assert grid.shape == (8, 223)
     assert grid.channel_response.shape == grid.shape
     assert grid.free_space_path_loss_db.shape == grid.shape
     assert np.all(np.isfinite(grid.channel_response.real))
@@ -163,11 +163,15 @@ def test_grid_npz_contains_complex_response_and_coordinates(baseline, tmp_path):
     path = save_siso_channel_grid_npz(grid, tmp_path / "channel_grid.npz")
 
     with np.load(path, allow_pickle=False) as saved:
-        assert saved["channel_response"].shape == (3, 200)
+        assert saved["channel_response"].shape == (3, 223)
         assert np.iscomplexobj(saved["channel_response"])
         assert np.array_equal(saved["time_s"], grid.axes.time.time_s)
         assert np.array_equal(
             saved["signed_subcarrier_indices"],
             grid.axes.frequency.signed_subcarrier_indices,
+        )
+        assert np.array_equal(
+            saved["fftshift_bin_indices"],
+            grid.axes.frequency.fftshift_bin_indices,
         )
         assert saved["model"].item().startswith("LOS SISO")

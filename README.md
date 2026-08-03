@@ -43,21 +43,22 @@ B_{\mathrm{occupied}}\approx K_{\mathrm{active}}\Delta f
 | 링크 | Ku-band downlink 연구 시나리오 |
 | 대표 반송파 | 11.7 GHz |
 | FFT 크기 | 256 |
-| 부반송파 간격 | 30 kHz |
-| 활성 부반송파 수 | 200 |
-| CP | 32 samples |
-| 파형 샘플레이트 | 7.68 MHz |
-| 파형 샘플주기 | 약 130.21 ns |
-| 점유대역폭 근사 | 6 MHz |
-| CP 포함 심벌시간 | 37.5 us |
+| 부반송파 간격 | 120 kHz |
+| 활성 부반송파 수 | 223 |
+| CP | 없음(0 samples) |
+| 파형 샘플레이트 | 30.72 MHz |
+| 파형 샘플주기 | 약 32.552 ns |
+| 점유대역폭 근사 | 26.76 MHz |
+| OFDM 심벌시간 | 약 8.333 us |
 | 원본 기하 상태 간격 | 1 s |
 | 채널 갱신 간격 | 1 ms |
 | 상태 재표본화 | cubic Hermite, 직접 SGP4로 검증 완료 |
 | 채널 grid 시간 기준 | OFDM FFT 구간 중앙 |
-| 부반송파 인덱스 | signed FFT index |
+| 부반송파 인덱스 | signed FFT index, 파형 배열은 `fftshift` 순서 |
 
-활성 부반송파의 정확한 배치, pilot 위치 및 파형 정규화는 팀 통합 전에
-확정해야 하며 YAML의 `team_confirmation.fields`에 표시한다. 기존 10 GHz
+NFFT, spacing, no-CP 및 활성 부반송파 배치는 민영 님의 송수신기와 맞췄다.
+심벌 평가 기준, pilot 위치 및 파형 정규화는 최종 통합 전에 확인하며 YAML의
+`team_confirmation.fields`에 표시한다. 기존 10 GHz
 ideal·SGP4 산출물은 재현성 보존을 위해 이 설정으로 자동 변경하지 않는다.
 
 ## OFDM 채널 grid 축
@@ -78,12 +79,13 @@ axes = build_ofdm_channel_grid_axes(
     symbol_time_reference=baseline.channel_grid.symbol_time_reference,
 )
 
-assert axes.shape == (8, 200)
+assert axes.shape == (8, 223)
 ```
 
-현재 임시 활성 배치는 DC를 비우고
-`[-100, ..., -1, 1, ..., 100]`으로 둔다. 이는 중심주파수 기준 signed
-index이며 NumPy FFT 배열에서 바로 사용할 `fft_bin_indices`도 함께 제공한다.
+활성 배치는 민영 님의 `fftshift` 파형 배열에서 양쪽 guard 16칸과 DC를
+비운다. 물리 주파수 기준으로는 `[-112, ..., -1, 1, ..., 111]`이며,
+자연 FFT 순서의 `fft_bin_indices`와 shifted 파형 배열용
+`fftshift_bin_indices`를 모두 제공한다.
 
 \[
 f_k=k\Delta f,\qquad f_{\mathrm{RF},k}=f_{\mathrm{carrier}}+f_k
@@ -99,8 +101,8 @@ t_m=t_{\mathrm{frame}}
 1 ms `channel_state.update_interval_s`는 전체 패스의 상태 기록과 블록 채널에
 사용하는 기준 갱신 간격이고, `H[m,k]`는 프레임 안의 실제 OFDM 심벌 시각에
 평가한다. Cubic Hermite는 1 ms에 제한되지 않으므로 필요한 심벌 시각을
-직접 목표 시각으로 전달할 수 있다. 정확한 활성 배치와 심벌 시간 기준은
-민영님의 송수신기와 합칠 때 YAML 값 또는 명시적 index 입력만 교체한다.
+직접 목표 시각으로 전달할 수 있다. 민영 님의 송수신기와 합칠 때는
+`fftshift_bin_indices`로 채널 열을 파형 배열에 연결한다.
 
 ## 복소 OFDM 채널 grid 생성
 
@@ -124,7 +126,7 @@ python -m starlink_isl.channel_grid_simulate
 |---|---|
 | `channel_grid.npz` | 복소 `H[m,k]`, 두 축, 거리·지연·Doppler·FSPL |
 | `time_axis.csv` | 심벌 번호, 시작 시각, 채널 평가 시각 및 UTC |
-| `frequency_axis.csv` | signed index, FFT bin, baseband/RF 주파수 |
+| `frequency_axis.csv` | signed index, 자연/shifted FFT bin, baseband/RF 주파수 |
 | `summary.json` | 모델 범위, grid 크기 및 물리량 최솟값·최댓값 |
 | `channel_grid_heatmap.png` | `H[m,k]` 크기와 wrapped phase heatmap |
 | `channel_grid_slices.png` | 특정 시각·부반송파의 주파수/시간 단면 |

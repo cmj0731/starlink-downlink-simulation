@@ -224,6 +224,7 @@ def save_siso_channel_grid_npz(
             grid.axes.frequency.signed_subcarrier_indices
         ),
         fft_bin_indices=grid.axes.frequency.fft_bin_indices,
+        fftshift_bin_indices=grid.axes.frequency.fftshift_bin_indices,
         baseband_frequency_hz=grid.axes.frequency.baseband_frequency_hz,
         rf_frequency_hz=grid.axes.frequency.rf_frequency_hz,
         carrier_frequency_hz=np.asarray(

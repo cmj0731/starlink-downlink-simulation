@@ -24,6 +24,7 @@ SYMBOL_TIME_REFERENCES = frozenset(
 SUPPORTED_CENTERED_LAYOUTS = frozenset(
     {"centered_dc_null_provisional", "centered_dc_active_provisional"}
 )
+MINYOUNG_FFTSHIFT_LAYOUT = "minyoung_fftshift_guard16_dc_null"
 
 
 def _read_only(values: NDArray) -> NDArray:
@@ -75,10 +76,11 @@ class OFDMTimeAxis:
 
 @dataclass(frozen=True, slots=True)
 class OFDMFrequencyAxis:
-    """Active signed subcarriers and their baseband/RF frequencies."""
+    """Active subcarriers in mathematical and waveform-bin conventions."""
 
     signed_subcarrier_indices: IntArray
     fft_bin_indices: IntArray
+    fftshift_bin_indices: IntArray
     baseband_frequency_hz: FloatArray
     rf_frequency_hz: FloatArray
     carrier_frequency_hz: float
@@ -158,6 +160,45 @@ def centered_active_subcarrier_indices(
         signed_indices[-1] > maximum_signed_index
     ):
         raise ValueError("centred active layout exceeds signed FFT-bin range")
+    return _read_only(signed_indices)
+
+
+def fftshift_guard_active_subcarrier_indices(
+    fft_size: int,
+    *,
+    left_guard_bins: int,
+    right_guard_bins: int,
+    dc_subcarrier_null: bool,
+) -> IntArray:
+    """Return signed indices for an ``fftshift`` grid with edge guards.
+
+    ``left_guard_bins`` and ``right_guard_bins`` count array positions at the
+    low- and high-frequency ends of the shifted waveform grid.  With
+    ``NFFT=256``, 16 guards per side, and null DC, this yields the 223 active
+    positions used by Minyoung's no-CP OFDM implementation.
+    """
+
+    size = _positive_integer(fft_size, "fft_size")
+    if size % 2 != 0:
+        raise ValueError("fft_size must be even for fftshift indexing")
+    for value, name in (
+        (left_guard_bins, "left_guard_bins"),
+        (right_guard_bins, "right_guard_bins"),
+    ):
+        if isinstance(value, (bool, np.bool_)) or not isinstance(
+            value, (int, np.integer)
+        ):
+            raise TypeError(f"{name} must be an integer")
+        if value < 0:
+            raise ValueError(f"{name} must be non-negative")
+    first = int(left_guard_bins)
+    stop = size - int(right_guard_bins)
+    if first >= stop:
+        raise ValueError("guard bins leave no active waveform positions")
+    shifted_indices = np.arange(first, stop, dtype=np.int64)
+    if dc_subcarrier_null:
+        shifted_indices = shifted_indices[shifted_indices != size // 2]
+    signed_indices = shifted_indices - size // 2
     return _read_only(signed_indices)
 
 
@@ -242,9 +283,8 @@ def build_ofdm_frequency_axis(
     """Build the active ``k`` axis in signed-index, FFT-bin, and Hz forms.
 
     An explicit signed-index array always takes precedence.  When it is not
-    supplied, only the named centred provisional layouts are accepted; this
-    prevents a ``pending`` team decision from silently becoming a waveform
-    assumption.
+    supplied, only a named executable layout is accepted.  The team-aligned
+    layout maps directly to Minyoung's shifted waveform array.
     """
 
     carrier_hz = _finite_float(carrier_frequency_hz, "carrier_frequency_hz")
@@ -252,24 +292,38 @@ def build_ofdm_frequency_axis(
         raise ValueError("carrier_frequency_hz must be positive")
 
     if active_subcarrier_indices is None:
-        if numerology.active_subcarrier_layout not in SUPPORTED_CENTERED_LAYOUTS:
+        layout = numerology.active_subcarrier_layout
+        if layout == MINYOUNG_FFTSHIFT_LAYOUT:
+            if numerology.fft_size != 256:
+                raise ValueError("Minyoung layout requires fft_size=256")
+            if not numerology.dc_subcarrier_null:
+                raise ValueError("Minyoung layout requires a null DC bin")
+            signed_indices = fftshift_guard_active_subcarrier_indices(
+                numerology.fft_size,
+                left_guard_bins=16,
+                right_guard_bins=16,
+                dc_subcarrier_null=True,
+            )
+            if signed_indices.size != numerology.active_subcarrier_count:
+                raise ValueError(
+                    "Minyoung layout requires active_subcarrier_count=223"
+                )
+        elif layout not in SUPPORTED_CENTERED_LAYOUTS:
             raise ValueError(
                 "active_subcarrier_layout is not executable; supply explicit "
                 "signed indices or select a supported provisional layout"
             )
-        layout_has_null_dc = (
-            numerology.active_subcarrier_layout
-            == "centered_dc_null_provisional"
-        )
-        if layout_has_null_dc != numerology.dc_subcarrier_null:
-            raise ValueError(
-                "active_subcarrier_layout conflicts with dc_subcarrier_null"
+        else:
+            layout_has_null_dc = layout == "centered_dc_null_provisional"
+            if layout_has_null_dc != numerology.dc_subcarrier_null:
+                raise ValueError(
+                    "active_subcarrier_layout conflicts with dc_subcarrier_null"
+                )
+            signed_indices = centered_active_subcarrier_indices(
+                numerology.fft_size,
+                numerology.active_subcarrier_count,
+                dc_subcarrier_null=numerology.dc_subcarrier_null,
             )
-        signed_indices = centered_active_subcarrier_indices(
-            numerology.fft_size,
-            numerology.active_subcarrier_count,
-            dc_subcarrier_null=numerology.dc_subcarrier_null,
-        )
     else:
         signed_indices = _explicit_signed_indices(
             active_subcarrier_indices,
@@ -279,6 +333,10 @@ def build_ofdm_frequency_axis(
     fft_bin_indices = np.mod(signed_indices, numerology.fft_size).astype(
         np.int64
     )
+    fftshift_bin_indices = np.mod(
+        signed_indices + numerology.fft_size // 2,
+        numerology.fft_size,
+    ).astype(np.int64)
     baseband_frequency_hz = (
         signed_indices.astype(np.float64) * numerology.subcarrier_spacing_hz
     )
@@ -288,6 +346,7 @@ def build_ofdm_frequency_axis(
     return OFDMFrequencyAxis(
         signed_subcarrier_indices=_read_only(signed_indices),
         fft_bin_indices=_read_only(fft_bin_indices),
+        fftshift_bin_indices=_read_only(fftshift_bin_indices),
         baseband_frequency_hz=_read_only(baseband_frequency_hz),
         rf_frequency_hz=_read_only(rf_frequency_hz),
         carrier_frequency_hz=carrier_hz,

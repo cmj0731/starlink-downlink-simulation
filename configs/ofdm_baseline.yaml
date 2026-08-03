@@ -14,17 +14,18 @@ radio:
 
 ofdm:
   fft_size: 256
-  subcarrier_spacing_hz: 30000.0
-  active_subcarrier_count: 200
-  cyclic_prefix_samples: 32
+  subcarrier_spacing_hz: 120000.0
+  active_subcarrier_count: 223
+  cyclic_prefix_samples: 0
   modulation: QPSK
   dc_subcarrier_null: true
-  active_subcarrier_layout: centered_dc_null_provisional
+  active_subcarrier_layout: minyoung_fftshift_guard16_dc_null
 
 channel_grid:
   time_axis: ofdm_symbol
   symbol_time_reference: fft_window_center
   subcarrier_index_convention: signed_fft
+  waveform_bin_order: fftshifted
 
 channel_state:
   geometry_source_step_s: 1.0
@@ -33,8 +34,8 @@ channel_state:
   validate_against_direct_sgp4: true
 
 receiver_filter:
-  passband_edge_hz: 3100000.0
-  stopband_edge_hz: 3600000.0
+  passband_edge_hz: 13500000.0
+  stopband_edge_hz: 14700000.0
   num_taps: 129
   window: hamming
 
@@ -43,6 +44,7 @@ experiments:
     - 15000.0
     - 30000.0
     - 60000.0
+    - 120000.0
   normalized_cfo_candidates:
     - 0.0
     - 0.01
@@ -60,11 +62,6 @@ experiments:
 team_confirmation:
   required_before_final_integration: true
   fields:
-    - ofdm.fft_size
-    - ofdm.subcarrier_spacing_hz
-    - ofdm.active_subcarrier_count
-    - ofdm.cyclic_prefix_samples
-    - ofdm.active_subcarrier_layout
     - channel_grid.symbol_time_reference
     - ofdm.pilot_layout
     - ofdm.waveform_normalization
