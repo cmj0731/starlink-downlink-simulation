@@ -74,6 +74,13 @@ def test_manifest_freezes_tensor_units_signs_and_responsibilities(baseline):
         "active_subcarrier_count",
     ]
     assert manifest["channel_tensor"]["axis_order"] == ["time", "frequency"]
+    exchange = manifest["channel_tensor"]["exchange_files"]
+    assert exchange["canonical"] == "channel_grid.npz"
+    assert exchange["portable"] == "channel_grid.csv"
+    assert exchange["complex_encoding"] == ["h_real", "h_imag"]
+    state_input = manifest["external_state_vector_input"]
+    assert state_input["supported_coordinate_frames"] == ["TEME", "ECEF"]
+    assert state_input["normalization_frame"] == "ECEF"
     assert manifest["time_axis"]["sample_location"] == "fft_window_center"
     assert manifest["si_state_fields"]["slant_range_m"]["unit"] == "m"
     assert (

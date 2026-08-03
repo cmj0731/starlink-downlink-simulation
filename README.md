@@ -223,6 +223,41 @@ t_m=t_{\mathrm{frame}}
 직접 목표 시각으로 전달할 수 있다. 민영 님의 송수신기와 합칠 때는
 `fftshift_bin_indices`로 채널 열을 파형 배열에 연결한다.
 
+## 외부 위성 위치·속도벡터 입력
+
+채널 모듈은 OMM/SGP4 대신 다른 모듈에서 제공한 위성 상태 CSV를 직접 사용할
+수 있다. CSV는 한 행이 한 UTC 상태이며 다음 필드를 반드시 포함한다.
+
+| 열 | 단위/규칙 |
+|---|---|
+| `schema_version` | 현재 `1` |
+| `utc` | timezone이 포함된 ISO-8601 UTC |
+| `coordinate_frame` | 파일 전체가 `TEME` 또는 `ECEF` 중 하나 |
+| `satellite_x_m`, `satellite_y_m`, `satellite_z_m` | 위치, m |
+| `satellite_vx_m_s`, `satellite_vy_m_s`, `satellite_vz_m_s` | 속도, m/s |
+| `object_name` | 선택 사항, 파일 전체에서 동일 |
+| `norad_catalog_id` | 선택 사항, 파일 전체에서 동일 |
+
+`TEME` 입력은 GMST 회전과 `omega_E x r` 속도 보정을 적용해 ECEF로 변환한다.
+`ECEF` 입력은 다시 회전시키지 않는다. UTC는 중복 없이 엄격히 증가해야 하고,
+기준 시각을 앞뒤에서 포함해야 한다. 이후 위치·속도를 cubic Hermite 보간하고
+보간된 벡터에서 LOS, range rate, delay, Doppler를 다시 계산한다.
+
+기존 SGP4 요약 없이 외부 벡터만 사용할 때의 명령은 다음과 같다.
+
+```powershell
+starlink-channel-grid `
+  --state-csv data/external/provided_satellite_state.csv `
+  --reference-utc 2026-07-29T07:46:50.953295Z `
+  --station-latitude-deg 37.2934 `
+  --station-longitude-deg 126.9747 `
+  --station-altitude-m 0 `
+  --minimum-elevation-deg 10
+```
+
+Python에서는 `load_satellite_state_csv`, `external_state_downlink_si`,
+`save_satellite_state_csv`를 같은 계약의 공식 loader/writer로 사용한다.
+
 ## 복소 OFDM 채널 grid 생성
 
 `starlink-channel-grid`는 기존 SGP4 패스의 OMM과 요약 파일을 읽어 선택한
@@ -244,6 +279,7 @@ python -m starlink_isl.channel_grid_simulate
 | 파일 | 내용 |
 |---|---|
 | `channel_grid.npz` | 복소 `H[m,k]`, 두 축, 거리·지연·Doppler·FSPL |
+| `channel_grid.csv` | 모듈 연동용 long format `H[m,k]`; `h_real`, `h_imag` 포함 |
 | `synchronized_channel_grid.npz` | 매 심벌 정답을 제거한 perfect `H_sync[m,k]`와 잔류 오차 |
 | `block_start_synchronized_channel_grid.npz` | 블록 첫 상태만 사용하는 보상 채널과 잔류 오차 |
 | `time_axis.csv` | 심벌 번호, 시작 시각, 채널 평가 시각 및 UTC |
@@ -252,6 +288,13 @@ python -m starlink_isl.channel_grid_simulate
 | `channel_grid_heatmap.png` | x축 시간, y축 주파수인 `H[m,k]` 크기·위상 heatmap |
 | `synchronization_comparison.png` | raw, 블록 시작 보상, perfect 보상의 잔류 위상 비교 |
 | `channel_grid_slices.png` | 특정 시각·부반송파의 주파수/시간 단면 |
+
+`channel_grid.npz`가 복소수 정밀도와 배열 구조를 보존하는 canonical 파일이다.
+`channel_grid.csv`는 한 `(m,k)` 셀을 한 행으로 펴며 시간-major 순서로 저장한다.
+다른 언어 또는 CSV 기반 모듈은 `h_real + 1j*h_imag`로 복소 채널을 복원한다.
+Python에서는 `load_channel_grid_csv`가 직사각형 grid, 중복 셀, schema와
+real/imag-magnitude 일관성을 검증한 뒤 `(time, frequency)` 배열을 반환한다.
+CSV가 불필요한 대규모 반복 분석에서는 `--no-channel-csv`로 생성을 끌 수 있다.
 
 채널식은 다음과 같다.
 

@@ -21,6 +21,7 @@ from starlink_isl.channel_grid import (
     build_ofdm_channel_grid_axes,
     build_ofdm_time_axis,
 )
+from starlink_isl.channel_io import save_channel_grid_csv
 from starlink_isl.ofdm_channel import (
     SISOChannelGrid,
     SynchronizedSISOChannelGrid,
@@ -36,7 +37,11 @@ from starlink_isl.research_config import (
     load_research_baseline,
 )
 from starlink_isl.sgp4_orbit import GroundStation, satrec_from_omm
-from starlink_isl.si_interface import sgp4_downlink_state_si
+from starlink_isl.si_interface import DownlinkStateSI, sgp4_downlink_state_si
+from starlink_isl.state_vector_io import (
+    external_state_downlink_si,
+    load_satellite_state_csv,
+)
 from starlink_isl.state_resampling import resample_downlink_state_si
 
 DEFAULT_SOURCE_OMM_PATH = Path("outputs/sgp4_downlink/source_omm.json")
@@ -55,6 +60,7 @@ class ChannelGridArtifacts:
     """Paths produced by one frame-sized channel-grid simulation."""
 
     channel_grid_npz: Path
+    channel_grid_csv: Path | None
     synchronized_channel_grid_npz: Path
     block_start_synchronized_channel_grid_npz: Path
     time_axis_csv: Path
@@ -388,10 +394,11 @@ def _summary(
     synchronized: SynchronizedSISOChannelGrid,
     block_start_synchronized: SynchronizedSISOChannelGrid,
     config: ResearchBaselineConfig,
-    omm_record: Mapping[str, Any],
+    omm_record: Mapping[str, Any] | None,
     reference_utc: datetime,
     reference_event: str,
     anchor_offsets_s: np.ndarray,
+    source_metadata: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     magnitude_db = 20.0 * np.log10(np.abs(grid.channel_response))
     synchronized_magnitude_db = 20.0 * np.log10(
@@ -400,10 +407,31 @@ def _summary(
     block_start_magnitude_db = 20.0 * np.log10(
         np.abs(block_start_synchronized.channel_response)
     )
+    metadata = dict(source_metadata or {})
+    if omm_record is not None:
+        object_name = str(omm_record["OBJECT_NAME"])
+        norad_catalog_id: int | None = int(omm_record["NORAD_CAT_ID"])
+        reference_model = "CelesTrak OMM / SGP4"
+        source_coordinate_frame = "TEME"
+    else:
+        object_name = str(metadata.get("object_name") or "external_state")
+        raw_norad = metadata.get("norad_catalog_id")
+        norad_catalog_id = None if raw_norad is None else int(raw_norad)
+        reference_model = str(
+            metadata.get("reference_model") or "external state-vector CSV"
+        )
+        source_coordinate_frame = str(
+            metadata.get("source_coordinate_frame") or "unknown"
+        )
+    anchor_step_s = (
+        config.channel_state.geometry_source_step_s
+        if omm_record is not None
+        else float(np.median(np.diff(anchor_offsets_s)))
+    )
     return {
         "model": "LOS SISO OFDM time-frequency channel grid",
-        "object_name": str(omm_record["OBJECT_NAME"]),
-        "norad_catalog_id": int(omm_record["NORAD_CAT_ID"]),
+        "object_name": object_name,
+        "norad_catalog_id": norad_catalog_id,
         "reference_event": reference_event,
         "reference_utc": _iso(reference_utc),
         "scenario_status": config.scenario.status,
@@ -542,8 +570,11 @@ def _summary(
             ),
         },
         "orbit_state": {
-            "reference_model": "CelesTrak OMM / SGP4",
-            "anchor_step_s": config.channel_state.geometry_source_step_s,
+            "reference_model": reference_model,
+            "source_coordinate_frame": source_coordinate_frame,
+            "channel_coordinate_frame": "ECEF",
+            "source_file": metadata.get("source_file"),
+            "anchor_step_s": anchor_step_s,
             "anchor_time_range_s": [
                 float(anchor_offsets_s[0]),
                 float(anchor_offsets_s[-1]),
@@ -574,13 +605,16 @@ def run_channel_grid_simulation(
     output_directory: Path,
     *,
     config: ResearchBaselineConfig,
-    omm_record: Mapping[str, Any],
+    omm_record: Mapping[str, Any] | None = None,
     reference_utc: datetime,
     station: GroundStation,
     minimum_elevation_deg: float = 10.0,
     symbol_count: int = 256,
     other_losses_db: float = 0.0,
     reference_event: str = "closest_approach",
+    source_state: DownlinkStateSI | None = None,
+    source_metadata: Mapping[str, Any] | None = None,
+    export_channel_csv: bool = True,
 ) -> ChannelGridArtifacts:
     """Generate a small physical channel grid centred on a pass event."""
 
@@ -592,25 +626,34 @@ def run_channel_grid_simulation(
     ):
         raise ValueError("minimum_elevation_deg must be in [-90, 90]")
 
+    if source_state is not None and omm_record is not None:
+        raise ValueError("provide either omm_record or source_state, not both")
     axes = _centred_frame_axes(config, symbol_count)
-    anchor_offsets_s = _anchor_offsets_s(
-        axes,
-        config.channel_state.geometry_source_step_s,
-    )
-    anchor_datetimes = [
-        reference + timedelta(seconds=float(offset))
-        for offset in anchor_offsets_s
-    ]
-    satellite = satrec_from_omm(dict(omm_record))
-    source_state = sgp4_downlink_state_si(
-        anchor_datetimes,
-        satellite,
-        config.radio.carrier_frequency_hz,
-        station,
-        minimum_elevation_rad=np.deg2rad(minimum_elevation_deg),
-        time_origin_utc=reference,
-        phase_reference_utc=reference,
-    )
+    if source_state is None:
+        if omm_record is None:
+            raise ValueError("omm_record or source_state is required")
+        anchor_offsets_s = _anchor_offsets_s(
+            axes,
+            config.channel_state.geometry_source_step_s,
+        )
+        anchor_datetimes = [
+            reference + timedelta(seconds=float(offset))
+            for offset in anchor_offsets_s
+        ]
+        satellite = satrec_from_omm(dict(omm_record))
+        source_state = sgp4_downlink_state_si(
+            anchor_datetimes,
+            satellite,
+            config.radio.carrier_frequency_hz,
+            station,
+            minimum_elevation_rad=np.deg2rad(minimum_elevation_deg),
+            time_origin_utc=reference,
+            phase_reference_utc=reference,
+        )
+    else:
+        if source_state.coordinate_frame != "ECEF":
+            raise ValueError("external source_state must be normalized to ECEF")
+        anchor_offsets_s = np.asarray(source_state.time_s, dtype=np.float64)
     symbol_state = resample_downlink_state_si(
         source_state,
         axes.time.time_s,
@@ -635,6 +678,11 @@ def run_channel_grid_simulation(
     output_directory.mkdir(parents=True, exist_ok=True)
     artifacts = ChannelGridArtifacts(
         channel_grid_npz=output_directory / "channel_grid.npz",
+        channel_grid_csv=(
+            output_directory / "channel_grid.csv"
+            if export_channel_csv
+            else None
+        ),
         synchronized_channel_grid_npz=(
             output_directory / "synchronized_channel_grid.npz"
         ),
@@ -651,6 +699,12 @@ def run_channel_grid_simulation(
         slices_png=output_directory / "channel_grid_slices.png",
     )
     save_siso_channel_grid_npz(grid, artifacts.channel_grid_npz)
+    if artifacts.channel_grid_csv is not None:
+        save_channel_grid_csv(
+            grid,
+            artifacts.channel_grid_csv,
+            reference_utc=reference,
+        )
     save_synchronized_siso_channel_grid_npz(
         synchronized,
         artifacts.synchronized_channel_grid_npz,
@@ -676,6 +730,7 @@ def run_channel_grid_simulation(
                 reference,
                 reference_event,
                 anchor_offsets_s,
+                source_metadata,
             ),
             ensure_ascii=False,
             indent=2,
@@ -707,10 +762,29 @@ def main() -> None:
         default=DEFAULT_SOURCE_OMM_PATH,
     )
     parser.add_argument(
+        "--state-csv",
+        type=Path,
+        help=(
+            "external TEME/ECEF state-vector CSV; when supplied, OMM/SGP4 "
+            "propagation is bypassed"
+        ),
+    )
+    parser.add_argument(
         "--geometry-summary",
         type=Path,
         default=DEFAULT_GEOMETRY_SUMMARY_PATH,
     )
+    parser.add_argument(
+        "--reference-utc",
+        help=(
+            "explicit channel-grid centre UTC; permits --state-csv without "
+            "an existing geometry summary"
+        ),
+    )
+    parser.add_argument("--station-latitude-deg", type=float)
+    parser.add_argument("--station-longitude-deg", type=float)
+    parser.add_argument("--station-altitude-m", type=float)
+    parser.add_argument("--minimum-elevation-deg", type=float)
     parser.add_argument(
         "--output",
         type=Path,
@@ -719,6 +793,11 @@ def main() -> None:
     parser.add_argument("--symbol-count", type=int, default=256)
     parser.add_argument("--other-losses-db", type=float, default=0.0)
     parser.add_argument(
+        "--no-channel-csv",
+        action="store_true",
+        help="skip the portable long-format H[m,k] CSV export",
+    )
+    parser.add_argument(
         "--reference-event",
         choices=tuple(REFERENCE_EVENT_KEYS),
         default="closest_approach",
@@ -726,40 +805,109 @@ def main() -> None:
     args = parser.parse_args()
 
     config = load_research_baseline(args.config)
-    omm_data = _load_json(args.source_omm)
-    if not isinstance(omm_data, list) or not omm_data:
-        raise ValueError("source OMM JSON must be a non-empty list")
-    geometry_summary = _load_json(args.geometry_summary)
-    selected_pass = geometry_summary["selected_pass"]
-    reference_utc = _parse_utc(
-        selected_pass[REFERENCE_EVENT_KEYS[args.reference_event]]
+    geometry_summary = (
+        _load_json(args.geometry_summary)
+        if args.geometry_summary.is_file()
+        else None
     )
-    station = GroundStation(**geometry_summary["station"])
-    norad_id = int(geometry_summary["norad_catalog_id"])
-    matching_records = [
-        record
-        for record in omm_data
-        if int(record["NORAD_CAT_ID"]) == norad_id
-    ]
-    if len(matching_records) != 1:
-        raise ValueError("source OMM must contain exactly one matching NORAD ID")
+    if args.reference_utc is not None:
+        reference_utc = _parse_utc(args.reference_utc)
+    elif geometry_summary is not None:
+        selected_pass = geometry_summary["selected_pass"]
+        reference_utc = _parse_utc(
+            selected_pass[REFERENCE_EVENT_KEYS[args.reference_event]]
+        )
+    else:
+        raise ValueError(
+            "--reference-utc is required when geometry summary is unavailable"
+        )
+    station_values = (
+        geometry_summary.get("station", {})
+        if geometry_summary is not None
+        else {}
+    )
+    station = GroundStation(
+        latitude_deg=(
+            args.station_latitude_deg
+            if args.station_latitude_deg is not None
+            else float(station_values.get("latitude_deg", 37.2934))
+        ),
+        longitude_deg=(
+            args.station_longitude_deg
+            if args.station_longitude_deg is not None
+            else float(station_values.get("longitude_deg", 126.9747))
+        ),
+        altitude_m=(
+            args.station_altitude_m
+            if args.station_altitude_m is not None
+            else float(station_values.get("altitude_m", 0.0))
+        ),
+    )
+    minimum_elevation_deg = (
+        args.minimum_elevation_deg
+        if args.minimum_elevation_deg is not None
+        else float(
+            geometry_summary.get("minimum_elevation_deg", 10.0)
+            if geometry_summary is not None
+            else 10.0
+        )
+    )
+    omm_record = None
+    source_state = None
+    source_metadata = None
+    if args.state_csv is not None:
+        external = load_satellite_state_csv(args.state_csv)
+        source_state = external_state_downlink_si(
+            external,
+            reference_utc,
+            config.radio.carrier_frequency_hz,
+            station,
+            minimum_elevation_deg=minimum_elevation_deg,
+        )
+        source_metadata = {
+            "reference_model": "external state-vector CSV",
+            "source_coordinate_frame": external.source_coordinate_frame,
+            "object_name": external.object_name,
+            "norad_catalog_id": external.norad_catalog_id,
+            "source_file": str(args.state_csv),
+        }
+    else:
+        if geometry_summary is None:
+            raise ValueError(
+                "geometry summary is required when using an OMM source"
+            )
+        omm_data = _load_json(args.source_omm)
+        if not isinstance(omm_data, list) or not omm_data:
+            raise ValueError("source OMM JSON must be a non-empty list")
+        norad_id = int(geometry_summary["norad_catalog_id"])
+        matching_records = [
+            record
+            for record in omm_data
+            if int(record["NORAD_CAT_ID"]) == norad_id
+        ]
+        if len(matching_records) != 1:
+            raise ValueError(
+                "source OMM must contain exactly one matching NORAD ID"
+            )
+        omm_record = matching_records[0]
     artifacts = run_channel_grid_simulation(
         args.output,
         config=config,
-        omm_record=matching_records[0],
+        omm_record=omm_record,
         reference_utc=reference_utc,
         station=station,
-        minimum_elevation_deg=float(
-            geometry_summary["minimum_elevation_deg"]
-        ),
+        minimum_elevation_deg=minimum_elevation_deg,
         symbol_count=args.symbol_count,
         other_losses_db=args.other_losses_db,
         reference_event=args.reference_event,
+        source_state=source_state,
+        source_metadata=source_metadata,
+        export_channel_csv=not args.no_channel_csv,
     )
     print(
         json.dumps(
             {
-                name: str(path)
+                name: None if path is None else str(path)
                 for name, path in asdict(artifacts).items()
             },
             indent=2,

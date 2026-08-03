@@ -449,6 +449,7 @@ def run_channel_prediction_error_comparison(
             symbol_count=source_count,
             other_losses_db=other_losses_db,
             reference_event=event,
+            export_channel_csv=False,
         )
         with np.load(event_artifacts.channel_grid_npz, allow_pickle=False) as raw:
             full_time_s = np.array(raw["time_s"], copy=True)

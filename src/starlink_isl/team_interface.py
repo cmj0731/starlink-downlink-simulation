@@ -11,12 +11,14 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from starlink_isl.channel_io import CHANNEL_CSV_SCHEMA_VERSION
 from starlink_isl.channel_grid import build_ofdm_frequency_axis
 from starlink_isl.research_config import (
     DEFAULT_BASELINE_PATH,
     ResearchBaselineConfig,
     load_research_baseline,
 )
+from starlink_isl.state_vector_io import STATE_VECTOR_CSV_SCHEMA_VERSION
 
 TEAM_INTERFACE_SCHEMA_VERSION = 1
 TEAM_INTERFACE_STATUS = "team_integration_v1"
@@ -157,6 +159,32 @@ def build_team_interface_manifest(
             "synchronized_variant": (
                 "retains FSPL and residual truth-minus-prediction phase"
             ),
+            "exchange_files": {
+                "canonical": "channel_grid.npz",
+                "portable": "channel_grid.csv",
+                "portable_schema_version": CHANNEL_CSV_SCHEMA_VERSION,
+                "portable_layout": "time-major long format",
+                "complex_encoding": ["h_real", "h_imag"],
+            },
+        },
+        "external_state_vector_input": {
+            "schema_version": STATE_VECTOR_CSV_SCHEMA_VERSION,
+            "time_column": "utc",
+            "time_rule": "timezone-aware, strictly increasing, unique",
+            "coordinate_frame_column": "coordinate_frame",
+            "supported_coordinate_frames": ["TEME", "ECEF"],
+            "position_columns_m": [
+                "satellite_x_m",
+                "satellite_y_m",
+                "satellite_z_m",
+            ],
+            "velocity_columns_m_s": [
+                "satellite_vx_m_s",
+                "satellite_vy_m_s",
+                "satellite_vz_m_s",
+            ],
+            "normalization_frame": "ECEF",
+            "teme_velocity_transform": "v_ecef=R*v_teme-omega_E_cross_r_ecef",
         },
         "time_axis": {
             "unit": "s",

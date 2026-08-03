@@ -105,12 +105,32 @@ x[n]
 SGP4 상태는 ECEF, 이상적 모델 상태는 ECI이므로 `coordinate_frame`을 확인한다.
 좌표계가 다른 위치·속도 벡터를 직접 빼지 않는다.
 
+외부 위성 상태 CSV의 v1 입력 계약은 다음과 같다.
+
+- `schema_version=1`
+- `utc`: timezone 포함 ISO-8601, 엄격히 증가하고 중복 없음
+- `coordinate_frame`: 파일 전체가 `TEME` 또는 `ECEF` 중 하나
+- 위치: `satellite_{x,y,z}_m`, 단위 m
+- 속도: `satellite_v{x,y,z}_m_s`, 단위 m/s
+- 선택 identity: `object_name`, `norad_catalog_id`
+
+`TEME` 입력만 ECEF 회전과 `omega_E x r` 보정을 적용한다. 이미 ECEF인 속도를
+다시 회전하지 않는다. 입력 위치·속도를 Hermite 보간한 뒤 LOS, range rate와
+Doppler를 다시 계산하며, 제공된 Doppler를 별도 truth로 간주하지 않는다.
+
 ## 5. 역할 경계
 
 채널 담당은 `H[m,k]`, 두 축, 거리·지연·range rate·Doppler·경로 이득과
 명시적으로 이름 붙인 보상 채널을 제공한다. OFDM 담당은 비트/QPSK 매핑,
 파일럿 심벌, FFT/IFFT, 등화·판정과 BER·EVM·ICI 계산을 담당한다. 결합부에서는
 `frequency_mapping.csv`로 열을 맞추고 위 정규화만 적용한다.
+
+기본 교환 파일은 `channel_grid.npz`이고, CSV 기반 모듈에는
+`channel_grid.csv`를 제공한다. CSV는 time-major long format이며 한 행이
+한 `(m,k)` 셀이다. 복소 채널은 `h_real`, `h_imag` 두 열로 전달한다.
+`symbol_index`, `channel_evaluation_time_s`, `grid_column`, signed/FFT bin,
+baseband/RF 주파수도 같은 행에 포함한다. CSV를 wide matrix로 임의 변환하여
+주파수 열 순서를 잃지 않는다.
 
 빔포밍/안테나 배열 차원, 다중경로 tap, 실제 Starlink 파형 주장은 v1 SISO
 계약에 포함하지 않는다. 이후 MIMO·빔포밍을 도입할 때는 `H[m,k]`의 앞 또는
@@ -128,6 +148,10 @@ starlink-team-interface
 
 - `outputs/team_interface/interface_manifest.json`
 - `outputs/team_interface/frequency_mapping.csv`
+- `outputs/channel_grid/channel_grid.npz`
+- `outputs/channel_grid/channel_grid.csv`
+- `outputs/channel_grid/time_axis.csv`
+- `outputs/channel_grid/frequency_axis.csv`
 
 결합 전에 두 팀은 FFT 크기, 120 kHz spacing, CP=0, 223개 활성 열,
 `fftshift` bin, `H`의 `(time, frequency)` 축, 심벌 중앙 시각과 정규화 식이

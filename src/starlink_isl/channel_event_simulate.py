@@ -574,6 +574,7 @@ def run_channel_event_comparison(
             symbol_count=symbol_count,
             other_losses_db=other_losses_db,
             reference_event=event,
+            export_channel_csv=False,
         )
         metrics, event_plot = _event_metrics(
             event,

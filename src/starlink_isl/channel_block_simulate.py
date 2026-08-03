@@ -577,6 +577,7 @@ def run_channel_block_comparison(
             symbol_count=counts[-1],
             other_losses_db=other_losses_db,
             reference_event=event,
+            export_channel_csv=False,
         )
         records.extend(
             _block_metrics(

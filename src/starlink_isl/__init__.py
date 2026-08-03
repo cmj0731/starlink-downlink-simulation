@@ -60,6 +60,12 @@ from starlink_isl.ofdm_channel import (
     synchronize_siso_ofdm_channel_grid,
     synchronize_siso_ofdm_channel_grid_from_block_start,
 )
+from starlink_isl.channel_io import (
+    CHANNEL_CSV_SCHEMA_VERSION,
+    ChannelGridCSVData,
+    load_channel_grid_csv,
+    save_channel_grid_csv,
+)
 from starlink_isl.sgp4_orbit import (
     GroundStation,
     SGP4PropagationError,
@@ -106,6 +112,13 @@ from starlink_isl.state_resampling import (
     compare_downlink_states,
     resample_downlink_state_si,
 )
+from starlink_isl.state_vector_io import (
+    STATE_VECTOR_CSV_SCHEMA_VERSION,
+    ExternalSatelliteState,
+    external_state_downlink_si,
+    load_satellite_state_csv,
+    save_satellite_state_csv,
+)
 from starlink_isl.satellite_channel import (
     SISOChannelConfig,
     SISOChannelResult,
@@ -121,10 +134,12 @@ __all__ = [
     "CFOCompensationResult",
     "CFOSequenceCompensationResult",
     "ChannelGridBaseline",
+    "ChannelGridCSVData",
     "ChannelStateSampling",
     "DownlinkDynamics",
     "DownlinkGeometry",
     "DownlinkStateSI",
+    "ExternalSatelliteState",
     "IdealOrbitConfig",
     "KinematicState",
     "LinkBudgetConfig",
@@ -152,6 +167,8 @@ __all__ = [
     "BOLTZMANN_J_K",
     "REFERENCE_NOISE_TEMPERATURE_K",
     "SPEED_OF_LIGHT_KM_S",
+    "CHANNEL_CSV_SCHEMA_VERSION",
+    "STATE_VECTOR_CSV_SCHEMA_VERSION",
     "VisibilityWindow",
     "apply_receiver_filter",
     "build_ofdm_channel_grid_axes",
@@ -173,6 +190,7 @@ __all__ = [
     "evaluate_siso_ofdm_channel_grid",
     "estimate_pilot_frequency_and_phase",
     "equivalent_receiver_noise_temperature_k",
+    "external_state_downlink_si",
     "free_space_path_loss_db",
     "find_visibility_passes",
     "geodetic_to_ecef",
@@ -181,6 +199,8 @@ __all__ = [
     "ideal_downlink_state_si",
     "link_budget",
     "load_research_baseline",
+    "load_channel_grid_csv",
+    "load_satellite_state_csv",
     "propagate_ecef",
     "propagate_teme",
     "predict_block_start_delay_and_doppler_phase",
@@ -190,6 +210,8 @@ __all__ = [
     "satellite_state",
     "satrec_from_omm",
     "save_siso_channel_grid_npz",
+    "save_channel_grid_csv",
+    "save_satellite_state_csv",
     "save_synchronized_siso_channel_grid_npz",
     "simulate_qpsk_snapshot",
     "simulate_pilot_aided_qpsk_snapshot",
