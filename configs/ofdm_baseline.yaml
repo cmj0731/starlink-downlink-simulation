@@ -1,0 +1,64 @@
+schema_version: 1
+
+scenario:
+  name: ku_leo_ofdm_baseline
+  status: provisional
+  represents_actual_starlink_waveform: false
+  description: >-
+    Team integration and channel-research baseline. These values are explicit
+    study assumptions, not a claim about the proprietary Starlink waveform.
+
+radio:
+  link_direction: downlink
+  carrier_frequency_hz: 11700000000.0
+
+ofdm:
+  fft_size: 256
+  subcarrier_spacing_hz: 30000.0
+  active_subcarrier_count: 200
+  cyclic_prefix_samples: 32
+  modulation: QPSK
+  dc_subcarrier_null: true
+  active_subcarrier_layout: pending_team_confirmation
+
+channel_state:
+  geometry_source_step_s: 1.0
+  update_interval_s: 0.001
+  resampling_method: cubic_hermite
+  validate_against_direct_sgp4: true
+
+receiver_filter:
+  passband_edge_hz: 3100000.0
+  stopband_edge_hz: 3600000.0
+  num_taps: 129
+  window: hamming
+
+experiments:
+  subcarrier_spacing_candidates_hz:
+    - 15000.0
+    - 30000.0
+    - 60000.0
+  normalized_cfo_candidates:
+    - 0.0
+    - 0.01
+    - 0.02
+    - 0.05
+    - 0.1
+  snr_db:
+    - 0.0
+    - 5.0
+    - 10.0
+    - 15.0
+    - 20.0
+    - 25.0
+
+team_confirmation:
+  required_before_final_integration: true
+  fields:
+    - ofdm.fft_size
+    - ofdm.subcarrier_spacing_hz
+    - ofdm.active_subcarrier_count
+    - ofdm.cyclic_prefix_samples
+    - ofdm.active_subcarrier_layout
+    - ofdm.pilot_layout
+    - ofdm.waveform_normalization

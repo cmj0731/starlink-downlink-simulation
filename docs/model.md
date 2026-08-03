@@ -479,11 +479,12 @@ equalization도 수행하지 않는다.
 적용한다.
 
 \[
-z_m[n]=\sum_{k=0}^{L-1}h[k]r_m[n-k]
+z_m[n]=\sum_{k=0}^{L-1}g_{\rm RX}[k]r_m[n-k]
 \]
 
 여기서 (m)은 신호 또는 안테나 스트림 인덱스다. 스트림을 서로 더하지
-않으므로 이 단계에는 RX beamforming이 포함되지 않는다. 계수 (h[k])는
+않으므로 이 단계에는 RX beamforming이 포함되지 않는다. 계수
+\(g_{\rm RX}[k]\)는
 홀수 탭 수를 갖는 대칭 저역통과 FIR이며 군지연은
 
 \[
@@ -503,7 +504,8 @@ D=\frac{L-1}{2}, \qquad \tau_D=\frac{D}{f_s}
 단위 DC 이득 필터의 복소 백색잡음 등가대역폭은
 
 \[
-B_{\rm eq}=f_s\frac{\sum_k |h[k]|^2}{|\sum_k h[k]|^2}
+B_{\rm eq}=f_s
+\frac{\sum_k |g_{\rm RX}[k]|^2}{|\sum_k g_{\rm RX}[k]|^2}
 \]
 
 로 기록한다. 채널과 수신 필터를 함께 쓰는 기준 경로에서는 채널의 필터 전
@@ -528,3 +530,61 @@ P_{n,\rm out}\simeq kT_{\rm sys}B_{\rm eq}
 포함하도록 불필요하게 넓어지는 것을 막을 수 있다. 여러 조각으로 처리할
 때는 반환된 `final_state`를 다음 호출의 `initial_state`로 전달해 필터 기억을
 유지한다.
+
+## 17. 임시 OFDM 연구 baseline
+
+팀 통합 전 채널 grid와 수신 필터를 개발하기 위한 공통 가정을
+`configs/ofdm_baseline.yaml`에 기록한다. 이 설정은 실제 Starlink 파형
+규격에 대한 주장이 아니며 `scenario.status: provisional`과
+`represents_actual_starlink_waveform: false`로 경계를 명시한다.
+
+초기 numerology는
+
+\[
+f_{\rm carrier}=11.7\ {\rm GHz},\quad
+N_{\rm FFT}=256,\quad
+\Delta f=30\ {\rm kHz},\quad
+K_{\rm active}=200,\quad
+N_{\rm CP}=32
+\]
+
+이다. 독립 입력으로부터 계산되는 값은
+
+\[
+f_s=N_{\rm FFT}\Delta f=7.68\ {\rm MHz}
+\]
+
+\[
+T_s=\frac{1}{f_s}\simeq130.21\ {\rm ns}
+\]
+
+\[
+B_{\rm occupied}\simeq K_{\rm active}\Delta f=6\ {\rm MHz}
+\]
+
+\[
+T_{\rm OFDM}
+=\frac{N_{\rm FFT}+N_{\rm CP}}{f_s}
+=37.5\ {\rm us}
+\]
+
+이다. 수신 필터의 임시 통과대역 끝은 3.1 MHz, 저지대역 시작은
+3.6 MHz로 두어 6 MHz 점유대역을 포함하고 3.84 MHz Nyquist 주파수보다
+낮게 둔다.
+
+원본 SGP4 기하 상태는 1초 간격이고 채널 갱신 간격은 1 ms로 가정한다.
+두 시간축 사이는 cubic Hermite 재표본화를 사용하고, 이후 직접 SGP4를
+같은 ms 시각에 전파한 결과와 위치·거리·range rate·Doppler·위상 오차를
+비교한다.
+
+`starlink-config configs/ofdm_baseline.yaml` 명령은 파생값을 출력하고 다음
+불일치를 거부한다.
+
+- 활성 부반송파 수가 사용 가능한 FFT bin 수를 초과하는 경우
+- 수신 필터가 OFDM 점유대역을 자르는 경우
+- 수신 필터 저지대역이 Nyquist 주파수 이상인 경우
+- 채널 갱신 간격이 원본 기하 상태 간격보다 긴 경우
+- 실험 spacing 후보에 baseline spacing이 없는 경우
+
+정확한 활성 부반송파 배치, pilot, 파형 정규화 및 최종 numerology는 팀
+합의 후 YAML 값만 변경한다. 채널 코드는 이 값들을 하드코딩하지 않는다.

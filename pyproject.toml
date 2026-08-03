@@ -13,6 +13,7 @@ dependencies = [
   "networkx>=3.3",
   "numpy>=2.0",
   "pandas>=2.2",
+  "PyYAML>=6.0",
   "requests>=2.32",
   "scipy>=1.14",
   "sgp4>=2.23",
@@ -24,6 +25,7 @@ dev = ["pytest>=8.3"]
 [project.scripts]
 starlink-fetch = "starlink_isl.celestrak:main"
 starlink-simulate = "starlink_isl.simulate:main"
+starlink-config = "starlink_isl.research_config:main"
 starlink-waveform = "starlink_isl.waveform_simulate:main"
 
 [tool.pytest.ini_options]

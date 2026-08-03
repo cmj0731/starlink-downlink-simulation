@@ -66,6 +66,12 @@ from starlink_isl.receiver_filter import (
     apply_receiver_filter,
     design_receiver_filter,
 )
+from starlink_isl.research_config import (
+    ChannelStateSampling,
+    OFDMNumerology,
+    ResearchBaselineConfig,
+    load_research_baseline,
+)
 from starlink_isl.si_interface import (
     DownlinkStateSI,
     downlink_state_si,
@@ -86,6 +92,7 @@ __all__ = [
     "ActualPass",
     "CFOCompensationResult",
     "CFOSequenceCompensationResult",
+    "ChannelStateSampling",
     "DownlinkDynamics",
     "DownlinkGeometry",
     "DownlinkStateSI",
@@ -93,10 +100,12 @@ __all__ = [
     "KinematicState",
     "LinkBudgetConfig",
     "LinkBudgetResult",
+    "OFDMNumerology",
     "PilotQPSKSnapshot",
     "QPSKSnapshot",
     "ReceiverFilterConfig",
     "ReceiverFilterResult",
+    "ResearchBaselineConfig",
     "GroundStation",
     "SGP4PropagationError",
     "SISOChannelConfig",
@@ -127,6 +136,7 @@ __all__ = [
     "ground_station_state",
     "ideal_downlink_state_si",
     "link_budget",
+    "load_research_baseline",
     "propagate_ecef",
     "propagate_teme",
     "qpsk_demodulate",

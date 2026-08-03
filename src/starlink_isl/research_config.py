@@ -1,0 +1,470 @@
+"""Validated, team-shared research baseline configuration."""
+
+from __future__ import annotations
+
+import argparse
+import json
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Mapping, Sequence
+
+import numpy as np
+import yaml
+
+DEFAULT_BASELINE_PATH = Path("configs/ofdm_baseline.yaml")
+
+
+def _mapping(parent: Mapping[str, Any], key: str) -> Mapping[str, Any]:
+    value = parent.get(key)
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{key} must be a mapping")
+    return value
+
+
+def _required(mapping: Mapping[str, Any], key: str, prefix: str) -> Any:
+    if key not in mapping:
+        raise ValueError(f"missing required setting: {prefix}.{key}")
+    return mapping[key]
+
+
+def _float_value(mapping: Mapping[str, Any], key: str, prefix: str) -> float:
+    value = _required(mapping, key, prefix)
+    if isinstance(value, (bool, np.bool_)):
+        raise TypeError(f"{prefix}.{key} must be numeric")
+    try:
+        converted = float(value)
+    except (TypeError, ValueError) as error:
+        raise TypeError(f"{prefix}.{key} must be numeric") from error
+    if not np.isfinite(converted):
+        raise ValueError(f"{prefix}.{key} must be finite")
+    return converted
+
+
+def _int_value(mapping: Mapping[str, Any], key: str, prefix: str) -> int:
+    value = _required(mapping, key, prefix)
+    if isinstance(value, (bool, np.bool_)) or not isinstance(
+        value,
+        (int, np.integer),
+    ):
+        raise TypeError(f"{prefix}.{key} must be an integer")
+    return int(value)
+
+
+def _bool_value(mapping: Mapping[str, Any], key: str, prefix: str) -> bool:
+    value = _required(mapping, key, prefix)
+    if not isinstance(value, (bool, np.bool_)):
+        raise TypeError(f"{prefix}.{key} must be a bool")
+    return bool(value)
+
+
+def _str_value(mapping: Mapping[str, Any], key: str, prefix: str) -> str:
+    value = _required(mapping, key, prefix)
+    if not isinstance(value, str) or not value.strip():
+        raise TypeError(f"{prefix}.{key} must be a non-empty string")
+    return value.strip()
+
+
+def _float_tuple(
+    mapping: Mapping[str, Any],
+    key: str,
+    prefix: str,
+) -> tuple[float, ...]:
+    values = _required(mapping, key, prefix)
+    if not isinstance(values, Sequence) or isinstance(values, (str, bytes)):
+        raise TypeError(f"{prefix}.{key} must be a sequence")
+    converted: list[float] = []
+    for index, value in enumerate(values):
+        if isinstance(value, (bool, np.bool_)):
+            raise TypeError(f"{prefix}.{key}[{index}] must be numeric")
+        try:
+            number = float(value)
+        except (TypeError, ValueError) as error:
+            raise TypeError(
+                f"{prefix}.{key}[{index}] must be numeric"
+            ) from error
+        if not np.isfinite(number):
+            raise ValueError(f"{prefix}.{key}[{index}] must be finite")
+        converted.append(number)
+    if not converted:
+        raise ValueError(f"{prefix}.{key} must not be empty")
+    return tuple(converted)
+
+
+@dataclass(frozen=True, slots=True)
+class ScenarioMetadata:
+    """Identity and claim boundary for the shared scenario."""
+
+    name: str
+    status: str
+    represents_actual_starlink_waveform: bool
+    description: str
+
+
+@dataclass(frozen=True, slots=True)
+class RadioBaseline:
+    """RF carrier assumptions used by propagation physics."""
+
+    link_direction: str
+    carrier_frequency_hz: float
+
+    def __post_init__(self) -> None:
+        if self.link_direction not in {"downlink", "uplink"}:
+            raise ValueError("radio.link_direction must be downlink or uplink")
+        if not np.isfinite(self.carrier_frequency_hz) or (
+            self.carrier_frequency_hz <= 0.0
+        ):
+            raise ValueError("radio.carrier_frequency_hz must be positive")
+
+
+@dataclass(frozen=True, slots=True)
+class OFDMNumerology:
+    """Waveform grid assumptions, independent of modulation implementation."""
+
+    fft_size: int
+    subcarrier_spacing_hz: float
+    active_subcarrier_count: int
+    cyclic_prefix_samples: int
+    modulation: str
+    dc_subcarrier_null: bool
+    active_subcarrier_layout: str
+
+    def __post_init__(self) -> None:
+        if self.fft_size < 2:
+            raise ValueError("ofdm.fft_size must be at least 2")
+        if self.fft_size & (self.fft_size - 1):
+            raise ValueError("ofdm.fft_size must be a power of two")
+        if not np.isfinite(self.subcarrier_spacing_hz) or (
+            self.subcarrier_spacing_hz <= 0.0
+        ):
+            raise ValueError("ofdm.subcarrier_spacing_hz must be positive")
+        available_subcarriers = self.fft_size - int(self.dc_subcarrier_null)
+        if not 0 < self.active_subcarrier_count <= available_subcarriers:
+            raise ValueError(
+                "ofdm.active_subcarrier_count exceeds available subcarriers"
+            )
+        if not 0 <= self.cyclic_prefix_samples < self.fft_size:
+            raise ValueError(
+                "ofdm.cyclic_prefix_samples must be in [0, fft_size)"
+            )
+        if not self.modulation:
+            raise ValueError("ofdm.modulation must not be empty")
+        if not self.active_subcarrier_layout:
+            raise ValueError("ofdm.active_subcarrier_layout must not be empty")
+
+    @property
+    def sample_rate_hz(self) -> float:
+        return self.fft_size * self.subcarrier_spacing_hz
+
+    @property
+    def sample_period_s(self) -> float:
+        return 1.0 / self.sample_rate_hz
+
+    @property
+    def useful_symbol_duration_s(self) -> float:
+        return 1.0 / self.subcarrier_spacing_hz
+
+    @property
+    def cyclic_prefix_duration_s(self) -> float:
+        return self.cyclic_prefix_samples / self.sample_rate_hz
+
+    @property
+    def total_symbol_duration_s(self) -> float:
+        return (
+            self.fft_size + self.cyclic_prefix_samples
+        ) / self.sample_rate_hz
+
+    @property
+    def occupied_bandwidth_hz(self) -> float:
+        return self.active_subcarrier_count * self.subcarrier_spacing_hz
+
+    @property
+    def total_guard_bandwidth_hz(self) -> float:
+        return self.sample_rate_hz - self.occupied_bandwidth_hz
+
+
+@dataclass(frozen=True, slots=True)
+class ChannelStateSampling:
+    """Orbit-state source and time-varying channel update assumptions."""
+
+    geometry_source_step_s: float
+    update_interval_s: float
+    resampling_method: str
+    validate_against_direct_sgp4: bool
+
+    def __post_init__(self) -> None:
+        for name, value in (
+            ("geometry_source_step_s", self.geometry_source_step_s),
+            ("update_interval_s", self.update_interval_s),
+        ):
+            if not np.isfinite(value) or value <= 0.0:
+                raise ValueError(f"channel_state.{name} must be positive")
+        if self.update_interval_s > self.geometry_source_step_s:
+            raise ValueError(
+                "channel_state.update_interval_s cannot exceed source step"
+            )
+        if self.resampling_method not in {"cubic_hermite", "direct_sgp4"}:
+            raise ValueError(
+                "channel_state.resampling_method must be cubic_hermite "
+                "or direct_sgp4"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class ReceiverFilterBaseline:
+    """Provisional complex-baseband receiver-filter edges."""
+
+    passband_edge_hz: float
+    stopband_edge_hz: float
+    num_taps: int
+    window: str
+
+    def validate_for(self, numerology: OFDMNumerology) -> None:
+        if not 0.0 < self.passband_edge_hz < self.stopband_edge_hz:
+            raise ValueError(
+                "receiver_filter edges must be positive and increasing"
+            )
+        if self.passband_edge_hz < 0.5 * numerology.occupied_bandwidth_hz:
+            raise ValueError(
+                "receiver_filter passband does not contain occupied bandwidth"
+            )
+        if self.stopband_edge_hz >= 0.5 * numerology.sample_rate_hz:
+            raise ValueError(
+                "receiver_filter stopband must be below Nyquist frequency"
+            )
+        if self.num_taps < 3 or self.num_taps % 2 == 0:
+            raise ValueError(
+                "receiver_filter.num_taps must be an odd integer of at least 3"
+            )
+        if not self.window:
+            raise ValueError("receiver_filter.window must not be empty")
+
+
+@dataclass(frozen=True, slots=True)
+class ExperimentSweeps:
+    """Initial CFO and SNR experiment axes."""
+
+    subcarrier_spacing_candidates_hz: tuple[float, ...]
+    normalized_cfo_candidates: tuple[float, ...]
+    snr_db: tuple[float, ...]
+
+    def validate_for(self, numerology: OFDMNumerology) -> None:
+        if any(value <= 0.0 for value in self.subcarrier_spacing_candidates_hz):
+            raise ValueError("experiment subcarrier spacings must be positive")
+        if not any(
+            np.isclose(value, numerology.subcarrier_spacing_hz)
+            for value in self.subcarrier_spacing_candidates_hz
+        ):
+            raise ValueError(
+                "experiment spacings must include the baseline spacing"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class TeamConfirmation:
+    """Fields that remain provisional until team integration."""
+
+    required_before_final_integration: bool
+    fields: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ResearchBaselineConfig:
+    """Validated shared baseline and its derived physical values."""
+
+    schema_version: int
+    scenario: ScenarioMetadata
+    radio: RadioBaseline
+    ofdm: OFDMNumerology
+    channel_state: ChannelStateSampling
+    receiver_filter: ReceiverFilterBaseline
+    experiments: ExperimentSweeps
+    team_confirmation: TeamConfirmation
+
+    def __post_init__(self) -> None:
+        if self.schema_version != 1:
+            raise ValueError("unsupported research-config schema_version")
+        self.receiver_filter.validate_for(self.ofdm)
+        self.experiments.validate_for(self.ofdm)
+
+    def derived_values(self) -> dict[str, float]:
+        """Return numerology values derived from independent YAML inputs."""
+
+        return {
+            "sample_rate_hz": self.ofdm.sample_rate_hz,
+            "sample_period_s": self.ofdm.sample_period_s,
+            "occupied_bandwidth_hz": self.ofdm.occupied_bandwidth_hz,
+            "total_guard_bandwidth_hz": self.ofdm.total_guard_bandwidth_hz,
+            "useful_symbol_duration_s": self.ofdm.useful_symbol_duration_s,
+            "cyclic_prefix_duration_s": self.ofdm.cyclic_prefix_duration_s,
+            "total_symbol_duration_s": self.ofdm.total_symbol_duration_s,
+        }
+
+
+def load_research_baseline(path: str | Path) -> ResearchBaselineConfig:
+    """Load and validate a team-shared YAML research baseline."""
+
+    config_path = Path(path)
+    try:
+        raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as error:
+        raise ValueError(f"invalid YAML in {config_path}") from error
+    if not isinstance(raw, Mapping):
+        raise ValueError("research configuration root must be a mapping")
+
+    scenario = _mapping(raw, "scenario")
+    radio = _mapping(raw, "radio")
+    ofdm = _mapping(raw, "ofdm")
+    channel = _mapping(raw, "channel_state")
+    receiver_filter = _mapping(raw, "receiver_filter")
+    experiments = _mapping(raw, "experiments")
+    confirmation = _mapping(raw, "team_confirmation")
+    confirmation_fields = _required(
+        confirmation,
+        "fields",
+        "team_confirmation",
+    )
+    if not isinstance(confirmation_fields, Sequence) or isinstance(
+        confirmation_fields,
+        (str, bytes),
+    ):
+        raise TypeError("team_confirmation.fields must be a sequence")
+    if not all(isinstance(value, str) and value for value in confirmation_fields):
+        raise TypeError("team_confirmation.fields must contain non-empty strings")
+
+    return ResearchBaselineConfig(
+        schema_version=_int_value(raw, "schema_version", "root"),
+        scenario=ScenarioMetadata(
+            name=_str_value(scenario, "name", "scenario"),
+            status=_str_value(scenario, "status", "scenario"),
+            represents_actual_starlink_waveform=_bool_value(
+                scenario,
+                "represents_actual_starlink_waveform",
+                "scenario",
+            ),
+            description=_str_value(scenario, "description", "scenario"),
+        ),
+        radio=RadioBaseline(
+            link_direction=_str_value(radio, "link_direction", "radio"),
+            carrier_frequency_hz=_float_value(
+                radio,
+                "carrier_frequency_hz",
+                "radio",
+            ),
+        ),
+        ofdm=OFDMNumerology(
+            fft_size=_int_value(ofdm, "fft_size", "ofdm"),
+            subcarrier_spacing_hz=_float_value(
+                ofdm,
+                "subcarrier_spacing_hz",
+                "ofdm",
+            ),
+            active_subcarrier_count=_int_value(
+                ofdm,
+                "active_subcarrier_count",
+                "ofdm",
+            ),
+            cyclic_prefix_samples=_int_value(
+                ofdm,
+                "cyclic_prefix_samples",
+                "ofdm",
+            ),
+            modulation=_str_value(ofdm, "modulation", "ofdm"),
+            dc_subcarrier_null=_bool_value(
+                ofdm,
+                "dc_subcarrier_null",
+                "ofdm",
+            ),
+            active_subcarrier_layout=_str_value(
+                ofdm,
+                "active_subcarrier_layout",
+                "ofdm",
+            ),
+        ),
+        channel_state=ChannelStateSampling(
+            geometry_source_step_s=_float_value(
+                channel,
+                "geometry_source_step_s",
+                "channel_state",
+            ),
+            update_interval_s=_float_value(
+                channel,
+                "update_interval_s",
+                "channel_state",
+            ),
+            resampling_method=_str_value(
+                channel,
+                "resampling_method",
+                "channel_state",
+            ),
+            validate_against_direct_sgp4=_bool_value(
+                channel,
+                "validate_against_direct_sgp4",
+                "channel_state",
+            ),
+        ),
+        receiver_filter=ReceiverFilterBaseline(
+            passband_edge_hz=_float_value(
+                receiver_filter,
+                "passband_edge_hz",
+                "receiver_filter",
+            ),
+            stopband_edge_hz=_float_value(
+                receiver_filter,
+                "stopband_edge_hz",
+                "receiver_filter",
+            ),
+            num_taps=_int_value(receiver_filter, "num_taps", "receiver_filter"),
+            window=_str_value(receiver_filter, "window", "receiver_filter"),
+        ),
+        experiments=ExperimentSweeps(
+            subcarrier_spacing_candidates_hz=_float_tuple(
+                experiments,
+                "subcarrier_spacing_candidates_hz",
+                "experiments",
+            ),
+            normalized_cfo_candidates=_float_tuple(
+                experiments,
+                "normalized_cfo_candidates",
+                "experiments",
+            ),
+            snr_db=_float_tuple(experiments, "snr_db", "experiments"),
+        ),
+        team_confirmation=TeamConfirmation(
+            required_before_final_integration=_bool_value(
+                confirmation,
+                "required_before_final_integration",
+                "team_confirmation",
+            ),
+            fields=tuple(confirmation_fields),
+        ),
+    )
+
+
+def main() -> None:
+    """Validate a baseline YAML and print its derived numerology."""
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "path",
+        nargs="?",
+        type=Path,
+        default=DEFAULT_BASELINE_PATH,
+    )
+    args = parser.parse_args()
+    config = load_research_baseline(args.path)
+    output = {
+        "scenario": config.scenario.name,
+        "status": config.scenario.status,
+        "represents_actual_starlink_waveform": (
+            config.scenario.represents_actual_starlink_waveform
+        ),
+        "derived": config.derived_values(),
+        "team_confirmation_required": (
+            config.team_confirmation.required_before_final_integration
+        ),
+    }
+    print(json.dumps(output, indent=2))
+
+
+if __name__ == "__main__":
+    main()

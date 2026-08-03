@@ -18,6 +18,46 @@ conda activate starlink-isl
 conda env update -f environment.yml --prune
 ```
 
+## 팀 공통 연구 baseline
+
+OFDM·채널·수신 필터가 서로 다른 수치를 사용하지 않도록 임시 공통 설정을
+`configs/ofdm_baseline.yaml`에 둔다. 이 파일은 실제 Starlink 독점 파형
+규격을 나타내지 않으며, 팀 통합과 비교 실험을 위한 명시적인 연구 가정이다.
+
+```powershell
+starlink-config configs/ofdm_baseline.yaml
+```
+
+검증 명령은 설정을 읽어 다음 관계와 모듈 간 제약을 확인한다.
+
+\[
+f_s=N_{\mathrm{FFT}}\Delta f,
+\qquad
+B_{\mathrm{occupied}}\approx K_{\mathrm{active}}\Delta f
+\]
+
+현재 임시 baseline은 다음과 같다.
+
+| 항목 | 값 |
+|---|---:|
+| 링크 | Ku-band downlink 연구 시나리오 |
+| 대표 반송파 | 11.7 GHz |
+| FFT 크기 | 256 |
+| 부반송파 간격 | 30 kHz |
+| 활성 부반송파 수 | 200 |
+| CP | 32 samples |
+| 파형 샘플레이트 | 7.68 MHz |
+| 파형 샘플주기 | 약 130.21 ns |
+| 점유대역폭 근사 | 6 MHz |
+| CP 포함 심벌시간 | 37.5 us |
+| 원본 기하 상태 간격 | 1 s |
+| 채널 갱신 간격 | 1 ms |
+| 상태 재표본화 | cubic Hermite, 직접 SGP4로 검증 예정 |
+
+활성 부반송파의 정확한 배치, pilot 위치 및 파형 정규화는 팀 통합 전에
+확정해야 하며 YAML의 `team_confirmation.fields`에 표시한다. 기존 10 GHz
+ideal·SGP4 산출물은 재현성 보존을 위해 이 설정으로 자동 변경하지 않는다.
+
 ## CelesTrak 데이터 받기
 
 ```powershell
