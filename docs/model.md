@@ -641,7 +641,63 @@ t_m=t_{\mathrm{frame}}+mT_{\mathrm{OFDM}}
 활성 부반송파 배치와 심벌 평가 기준은 아직 provisional이며
 `team_confirmation.fields`에 남겨 둔다.
 
-## 19. SGP4 anchor와 cubic Hermite 재표본화
+## 19. 복소 SISO OFDM 채널 grid
+
+시간·주파수 축과 같은 시각에 재표본화한 `DownlinkStateSI`를 이용해 다음
+복소 채널을 계산한다.
+
+\[
+H[m,k]
+=a[m,k]\exp\left(j\phi_D[m]\right)
+\exp\left(-j2\pi f_k\tau[m]\right)
+\]
+
+여기서 실제 RF 부반송파 주파수는
+
+\[
+f_{\mathrm{RF},k}=f_{\mathrm{carrier}}+f_k
+\]
+
+이고 자유공간 진폭 이득은
+
+\[
+a[m,k]
+=10^{-\left(L_{\mathrm{FSPL}}[m,k]+L_{\mathrm{other}}\right)/20}
+\]
+
+\[
+L_{\mathrm{FSPL}}[m,k]
+=20\log_{10}\left(
+\frac{4\pi d[m]f_{\mathrm{RF},k}}{c}
+\right)
+\]
+
+로 계산한다. 6 MHz 대역은 11.7 GHz 반송파에 비해 매우 좁으므로 주파수에
+따른 진폭 차이는 작지만, 실제 RF 주파수별 값을 계산해 근사를 숨기지 않는다.
+
+`phi_D[m]`은 SGP4/Hermite 경사거리로부터 얻은 반송파 Doppler 위상이다.
+기준 이벤트 거리의 상수 반송파 위상은 0으로 두되 이후 시간 변화는 모두
+유지한다. `exp(-j2 pi f_k tau[m])`는 절대 지연이 만드는 부반송파별 위상
+기울기이다. 이는 시간영역에서 신호를 수 ms 이동시킨 것과 동일한 의미를
+가질 수 있지만, 현재 grid 자체는 샘플 배열을 이동시키지 않는다.
+
+따라서 이 결과를 OFDM FFT 출력에 바로 곱할 때는 다음 범위를 지켜야 한다.
+
+- `H[m,k]`는 한 심벌당 하나의 대각 채널 계수이다.
+- 심벌 내부의 미보상 Doppler와 ICI는 이 대각 행렬에 포함되지 않는다.
+- 실제 수신기는 예측 지연으로 timing alignment를 한 뒤 잔류 지연 기준을
+  맞춰야 한다.
+- CP는 timing alignment 후 남은 채널 impulse response를 위한 것이며 수 ms
+  절대 위성 전파시간 자체를 흡수하는 장치가 아니다.
+- 현재 결과에는 multipath, 안테나 이득, beamforming 및 AWGN이 없다.
+
+`channel_grid.npz`에는 복소 채널과 함께 시간축, signed/FFT-bin 주파수축,
+거리, 지연, radial velocity, Doppler, FSPL 및 위상 항을 저장한다. CSV는
+두 축을 사람이 읽기 위한 파일이고 PNG는 크기·wrapped phase heatmap과
+단면을 보여준다. 전체 가시 패스의 모든 OFDM 심벌을 한 번에 저장하면 매우
+커지므로 이벤트 주변 프레임 단위로 생성한다.
+
+## 20. SGP4 anchor와 cubic Hermite 재표본화
 
 SGP4는 OMM 궤도요소로 임의의 UTC에서 위성 위치와 속도를 직접 계산하는
 기준 궤도 전파 모델이다. Cubic Hermite는 SGP4로 계산한 두 anchor 상태의

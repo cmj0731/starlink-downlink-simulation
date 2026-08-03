@@ -49,6 +49,11 @@ from starlink_isl.link_budget import (
     system_noise_temperature_k,
     thermal_noise_power_dbw,
 )
+from starlink_isl.ofdm_channel import (
+    SISOChannelGrid,
+    evaluate_siso_ofdm_channel_grid,
+    save_siso_channel_grid_npz,
+)
 from starlink_isl.sgp4_orbit import (
     GroundStation,
     SGP4PropagationError,
@@ -128,6 +133,7 @@ __all__ = [
     "GroundStation",
     "SGP4PropagationError",
     "SISOChannelConfig",
+    "SISOChannelGrid",
     "SISOChannelResult",
     "SISOChannelSequenceResult",
     "StateResamplingError",
@@ -152,6 +158,7 @@ __all__ = [
     "apply_siso_downlink_channel",
     "apply_siso_downlink_sequence",
     "error_vector_magnitude_percent",
+    "evaluate_siso_ofdm_channel_grid",
     "estimate_pilot_frequency_and_phase",
     "equivalent_receiver_noise_temperature_k",
     "free_space_path_loss_db",
@@ -169,6 +176,7 @@ __all__ = [
     "resample_downlink_state_si",
     "satellite_state",
     "satrec_from_omm",
+    "save_siso_channel_grid_npz",
     "simulate_qpsk_snapshot",
     "simulate_pilot_aided_qpsk_snapshot",
     "sgp4_downlink_state_si",

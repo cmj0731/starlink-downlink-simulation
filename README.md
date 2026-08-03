@@ -102,6 +102,49 @@ t_m=t_{\mathrm{frame}}
 직접 목표 시각으로 전달할 수 있다. 정확한 활성 배치와 심벌 시간 기준은
 민영님의 송수신기와 합칠 때 YAML 값 또는 명시적 index 입력만 교체한다.
 
+## 복소 OFDM 채널 grid 생성
+
+`starlink-channel-grid`는 기존 SGP4 패스의 OMM과 요약 파일을 읽어 선택한
+이벤트 주변의 프레임 크기 복소 채널 `H[m,k]`를 생성한다. 기본값은
+최근접 시각을 중심으로 한 256개 OFDM 심벌이다.
+
+```powershell
+starlink-channel-grid
+```
+
+직접 모듈로 실행할 수도 있다.
+
+```powershell
+python -m starlink_isl.channel_grid_simulate
+```
+
+기본 출력은 `outputs/channel_grid`에 생성된다.
+
+| 파일 | 내용 |
+|---|---|
+| `channel_grid.npz` | 복소 `H[m,k]`, 두 축, 거리·지연·Doppler·FSPL |
+| `time_axis.csv` | 심벌 번호, 시작 시각, 채널 평가 시각 및 UTC |
+| `frequency_axis.csv` | signed index, FFT bin, baseband/RF 주파수 |
+| `summary.json` | 모델 범위, grid 크기 및 물리량 최솟값·최댓값 |
+| `channel_grid_heatmap.png` | `H[m,k]` 크기와 wrapped phase heatmap |
+| `channel_grid_slices.png` | 특정 시각·부반송파의 주파수/시간 단면 |
+
+채널식은 다음과 같다.
+
+\[
+H[m,k]=a[m,k]e^{j\phi_D[m]}e^{-j2\pi f_k\tau[m]}
+\]
+
+`a[m,k]`는 각 RF 부반송파에서 계산한 FSPL 진폭이며, `phi_D[m]`은 기준
+이벤트 거리에서 시작하는 반송파 Doppler 위상이다. 마지막 항은 절대 전파
+지연의 주파수별 위상이다.
+
+이 grid는 한 OFDM 심벌을 한 시각으로 대표하는 대각 채널이다. 큰 미보상
+Doppler가 심벌 안에서 만드는 ICI는 포함하지 않으며 시간영역 CFO 또는 별도
+ICI 연산자가 필요하다. 또한 절대 지연을 주파수 위상으로 기록한 것이므로,
+실제 FFT 심벌에 적용하기 전에는 수신기 timing alignment 기준과 맞춰야 한다.
+CP가 수 ms 절대 전파 지연을 대신 보상하는 것은 아니다.
+
 ## 채널 상태 재표본화
 
 `resample_downlink_state_si`는 1초 간격 SGP4 anchor 상태를 1 ms 등 임의의

@@ -1,0 +1,556 @@
+"""Generate and visualize a frame-sized STARLINK OFDM channel grid."""
+
+from __future__ import annotations
+
+import argparse
+import json
+from dataclasses import asdict, dataclass
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Mapping
+
+import matplotlib
+import numpy as np
+import pandas as pd
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+from starlink_isl.channel_grid import (
+    OFDMChannelGridAxes,
+    build_ofdm_channel_grid_axes,
+    build_ofdm_time_axis,
+)
+from starlink_isl.ofdm_channel import (
+    SISOChannelGrid,
+    evaluate_siso_ofdm_channel_grid,
+    save_siso_channel_grid_npz,
+)
+from starlink_isl.research_config import (
+    DEFAULT_BASELINE_PATH,
+    ResearchBaselineConfig,
+    load_research_baseline,
+)
+from starlink_isl.sgp4_orbit import GroundStation, satrec_from_omm
+from starlink_isl.si_interface import sgp4_downlink_state_si
+from starlink_isl.state_resampling import resample_downlink_state_si
+
+DEFAULT_SOURCE_OMM_PATH = Path("outputs/sgp4_downlink/source_omm.json")
+DEFAULT_GEOMETRY_SUMMARY_PATH = Path("outputs/sgp4_downlink/summary.json")
+DEFAULT_CHANNEL_GRID_OUTPUT_DIRECTORY = Path("outputs/channel_grid")
+REFERENCE_EVENT_KEYS = {
+    "visibility_start": "start_utc",
+    "maximum_elevation": "maximum_elevation_utc",
+    "closest_approach": "closest_approach_utc",
+    "visibility_end": "end_utc",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class ChannelGridArtifacts:
+    """Paths produced by one frame-sized channel-grid simulation."""
+
+    channel_grid_npz: Path
+    time_axis_csv: Path
+    frequency_axis_csv: Path
+    summary_json: Path
+    heatmap_png: Path
+    slices_png: Path
+
+
+def _positive_integer(value: int, name: str) -> int:
+    if isinstance(value, (bool, np.bool_)) or not isinstance(
+        value,
+        (int, np.integer),
+    ):
+        raise TypeError(f"{name} must be an integer")
+    converted = int(value)
+    if converted <= 0:
+        raise ValueError(f"{name} must be positive")
+    return converted
+
+
+def _utc(value: datetime, name: str) -> datetime:
+    if value.tzinfo is None:
+        raise ValueError(f"{name} must be timezone-aware")
+    return value.astimezone(timezone.utc)
+
+
+def _parse_utc(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return _utc(parsed, "UTC timestamp")
+
+
+def _iso(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _centred_frame_axes(
+    config: ResearchBaselineConfig,
+    symbol_count: int,
+) -> OFDMChannelGridAxes:
+    count = _positive_integer(symbol_count, "symbol_count")
+    reference = config.channel_grid.symbol_time_reference
+    one_symbol = build_ofdm_time_axis(
+        config.ofdm,
+        1,
+        symbol_time_reference=reference,
+    )
+    frame_start_time_s = -(
+        one_symbol.reference_offset_s
+        + 0.5 * (count - 1) * config.ofdm.total_symbol_duration_s
+    )
+    return build_ofdm_channel_grid_axes(
+        config.ofdm,
+        config.radio.carrier_frequency_hz,
+        count,
+        frame_start_time_s=frame_start_time_s,
+        symbol_time_reference=reference,
+    )
+
+
+def _anchor_offsets_s(
+    axes: OFDMChannelGridAxes,
+    source_step_s: float,
+) -> np.ndarray:
+    first = (
+        np.floor(float(axes.time.time_s[0]) / source_step_s) * source_step_s
+        - source_step_s
+    )
+    last = (
+        np.ceil(float(axes.time.time_s[-1]) / source_step_s) * source_step_s
+        + source_step_s
+    )
+    interval_count = int(np.rint((last - first) / source_step_s))
+    return np.linspace(first, last, interval_count + 1, dtype=np.float64)
+
+
+def _save_axes_csv(
+    axes: OFDMChannelGridAxes,
+    reference_utc: datetime,
+    time_path: Path,
+    frequency_path: Path,
+) -> None:
+    utc_values = [
+        _iso(reference_utc + timedelta(seconds=float(offset)))
+        for offset in axes.time.time_s
+    ]
+    pd.DataFrame(
+        {
+            "symbol_index": axes.time.symbol_indices,
+            "symbol_start_time_s": axes.time.symbol_start_time_s,
+            "channel_evaluation_time_s": axes.time.time_s,
+            "channel_evaluation_utc": utc_values,
+            "symbol_time_reference": axes.time.symbol_time_reference,
+        }
+    ).to_csv(time_path, index=False)
+    pd.DataFrame(
+        {
+            "grid_column": np.arange(
+                axes.frequency.subcarrier_count,
+                dtype=np.int64,
+            ),
+            "signed_subcarrier_index": (
+                axes.frequency.signed_subcarrier_indices
+            ),
+            "fft_bin_index": axes.frequency.fft_bin_indices,
+            "baseband_frequency_hz": axes.frequency.baseband_frequency_hz,
+            "rf_frequency_hz": axes.frequency.rf_frequency_hz,
+        }
+    ).to_csv(frequency_path, index=False)
+
+
+def _save_heatmap(grid: SISOChannelGrid, path: Path) -> None:
+    frequency_mhz = grid.axes.frequency.baseband_frequency_hz / 1.0e6
+    time_ms = grid.axes.time.time_s * 1.0e3
+    magnitude_db = 20.0 * np.log10(np.abs(grid.channel_response))
+    phase_rad = np.angle(grid.channel_response)
+    figure, axes = plt.subplots(
+        2,
+        1,
+        figsize=(10.0, 7.4),
+        sharex=True,
+        constrained_layout=True,
+    )
+    magnitude_map = axes[0].pcolormesh(
+        frequency_mhz,
+        time_ms,
+        magnitude_db,
+        shading="nearest",
+        cmap="viridis",
+    )
+    magnitude_colorbar = figure.colorbar(
+        magnitude_map,
+        ax=axes[0],
+        label="20 log10 |H| (dB)",
+    )
+    magnitude_colorbar.formatter.set_useOffset(False)
+    magnitude_colorbar.update_ticks()
+    axes[0].set(
+        ylabel="Time from reference event (ms)",
+        title="SISO OFDM channel magnitude",
+    )
+    phase_map = axes[1].pcolormesh(
+        frequency_mhz,
+        time_ms,
+        phase_rad,
+        shading="nearest",
+        cmap="twilight",
+        vmin=-np.pi,
+        vmax=np.pi,
+    )
+    figure.colorbar(phase_map, ax=axes[1], label="Wrapped phase (rad)")
+    axes[1].set(
+        xlabel="Baseband subcarrier frequency (MHz)",
+        ylabel="Time from reference event (ms)",
+        title="SISO OFDM channel phase",
+    )
+    figure.suptitle(
+        "Frame-sized H[m,k]: FSPL, carrier Doppler phase, and delay phase"
+    )
+    figure.savefig(path, dpi=170)
+    plt.close(figure)
+
+
+def _combined_legend(primary, secondary, *, location: str) -> None:
+    handles_a, labels_a = primary.get_legend_handles_labels()
+    handles_b, labels_b = secondary.get_legend_handles_labels()
+    primary.legend(handles_a + handles_b, labels_a + labels_b, loc=location)
+
+
+def _save_slices(grid: SISOChannelGrid, path: Path) -> None:
+    frequency_mhz = grid.axes.frequency.baseband_frequency_hz / 1.0e6
+    time_ms = grid.axes.time.time_s * 1.0e3
+    magnitude_db = 20.0 * np.log10(np.abs(grid.channel_response))
+    phase_rad = np.angle(grid.channel_response)
+    symbol_index = int(np.argmin(np.abs(grid.axes.time.time_s)))
+    subcarrier_index = int(
+        np.argmin(np.abs(grid.axes.frequency.baseband_frequency_hz))
+    )
+
+    figure, axes = plt.subplots(
+        2,
+        1,
+        figsize=(9.5, 7.2),
+        constrained_layout=True,
+    )
+    frequency_phase_axis = axes[0].twinx()
+    axes[0].plot(
+        frequency_mhz,
+        magnitude_db[symbol_index],
+        color="tab:blue",
+        label="Magnitude",
+    )
+    frequency_phase_axis.plot(
+        frequency_mhz,
+        phase_rad[symbol_index],
+        color="tab:orange",
+        linewidth=1.0,
+        label="Wrapped phase",
+    )
+    axes[0].set(
+        xlabel="Baseband subcarrier frequency (MHz)",
+        ylabel="20 log10 |H| (dB)",
+        title=(
+            "Frequency slice at t="
+            f"{grid.axes.time.time_s[symbol_index] * 1e3:.6f} ms"
+        ),
+    )
+    axes[0].ticklabel_format(axis="y", style="plain", useOffset=False)
+    frequency_phase_axis.set_ylabel("Wrapped phase (rad)")
+    axes[0].grid(True, alpha=0.3)
+    _combined_legend(axes[0], frequency_phase_axis, location="best")
+
+    time_phase_axis = axes[1].twinx()
+    magnitude_change_nanodb = 1.0e9 * (
+        magnitude_db[:, subcarrier_index]
+        - magnitude_db[symbol_index, subcarrier_index]
+    )
+    axes[1].plot(
+        time_ms,
+        magnitude_change_nanodb,
+        color="tab:blue",
+        label="Magnitude change",
+    )
+    time_phase_axis.plot(
+        time_ms,
+        phase_rad[:, subcarrier_index],
+        color="tab:orange",
+        linewidth=1.0,
+        label="Wrapped phase",
+    )
+    signed_index = int(
+        grid.axes.frequency.signed_subcarrier_indices[subcarrier_index]
+    )
+    axes[1].set(
+        xlabel="Time from reference event (ms)",
+        ylabel="Magnitude change from center (nanodB)",
+        title=f"Time slice at signed subcarrier k={signed_index}",
+    )
+    time_phase_axis.set_ylabel("Wrapped phase (rad)")
+    axes[1].grid(True, alpha=0.3)
+    _combined_legend(axes[1], time_phase_axis, location="best")
+    figure.suptitle("Selected frequency and time slices of H[m,k]")
+    figure.savefig(path, dpi=170)
+    plt.close(figure)
+
+
+def _summary(
+    grid: SISOChannelGrid,
+    config: ResearchBaselineConfig,
+    omm_record: Mapping[str, Any],
+    reference_utc: datetime,
+    reference_event: str,
+    anchor_offsets_s: np.ndarray,
+) -> dict[str, Any]:
+    magnitude_db = 20.0 * np.log10(np.abs(grid.channel_response))
+    return {
+        "model": "LOS SISO OFDM time-frequency channel grid",
+        "object_name": str(omm_record["OBJECT_NAME"]),
+        "norad_catalog_id": int(omm_record["NORAD_CAT_ID"]),
+        "reference_event": reference_event,
+        "reference_utc": _iso(reference_utc),
+        "scenario_status": config.scenario.status,
+        "represents_actual_starlink_waveform": (
+            config.scenario.represents_actual_starlink_waveform
+        ),
+        "shape_convention": ["ofdm_symbol", "active_subcarrier"],
+        "shape": list(grid.shape),
+        "carrier_frequency_hz": grid.axes.frequency.carrier_frequency_hz,
+        "subcarrier_spacing_hz": (
+            grid.axes.frequency.subcarrier_spacing_hz
+        ),
+        "symbol_time_reference": grid.axes.time.symbol_time_reference,
+        "symbol_duration_s": grid.axes.time.total_symbol_duration_s,
+        "time_range_s": [
+            float(grid.axes.time.time_s[0]),
+            float(grid.axes.time.time_s[-1]),
+        ],
+        "signed_subcarrier_index_range": [
+            int(grid.axes.frequency.signed_subcarrier_indices[0]),
+            int(grid.axes.frequency.signed_subcarrier_indices[-1]),
+        ],
+        "baseband_frequency_range_hz": [
+            float(grid.axes.frequency.baseband_frequency_hz[0]),
+            float(grid.axes.frequency.baseband_frequency_hz[-1]),
+        ],
+        "rf_frequency_range_hz": [
+            float(grid.axes.frequency.rf_frequency_hz[0]),
+            float(grid.axes.frequency.rf_frequency_hz[-1]),
+        ],
+        "slant_range_m": {
+            "minimum": float(np.min(grid.slant_range_m)),
+            "maximum": float(np.max(grid.slant_range_m)),
+        },
+        "propagation_delay_s": {
+            "minimum": float(np.min(grid.propagation_delay_s)),
+            "maximum": float(np.max(grid.propagation_delay_s)),
+        },
+        "doppler_shift_hz": {
+            "minimum": float(np.min(grid.doppler_shift_hz)),
+            "maximum": float(np.max(grid.doppler_shift_hz)),
+        },
+        "free_space_path_loss_db": {
+            "minimum": float(np.min(grid.free_space_path_loss_db)),
+            "maximum": float(np.max(grid.free_space_path_loss_db)),
+        },
+        "channel_magnitude_db": {
+            "minimum": float(np.min(magnitude_db)),
+            "maximum": float(np.max(magnitude_db)),
+        },
+        "other_losses_db": grid.other_losses_db,
+        "orbit_state": {
+            "reference_model": "CelesTrak OMM / SGP4",
+            "anchor_step_s": config.channel_state.geometry_source_step_s,
+            "anchor_time_range_s": [
+                float(anchor_offsets_s[0]),
+                float(anchor_offsets_s[-1]),
+            ],
+            "interpolation": config.channel_state.resampling_method,
+        },
+        "channel_formula": (
+            "H[m,k]=a[m,k] exp(j phi_D[m]) "
+            "exp(-j 2 pi f_k tau[m])"
+        ),
+        "phase_convention": {
+            "carrier_phase": (
+                "relative to the slant range at the reference event"
+            ),
+            "subcarrier_delay_phase": "uses absolute propagation delay",
+            "constant_carrier_phase_at_reference": "omitted",
+        },
+        "scope_limitations": [
+            "one channel sample per OFDM symbol",
+            "within-symbol Doppler and ICI are not represented by H[m,k]",
+            "absolute delay is a frequency-domain phase, not a sample shift",
+            "no multipath, antenna gain, beamforming, or AWGN",
+        ],
+    }
+
+
+def run_channel_grid_simulation(
+    output_directory: Path,
+    *,
+    config: ResearchBaselineConfig,
+    omm_record: Mapping[str, Any],
+    reference_utc: datetime,
+    station: GroundStation,
+    minimum_elevation_deg: float = 10.0,
+    symbol_count: int = 256,
+    other_losses_db: float = 0.0,
+    reference_event: str = "closest_approach",
+) -> ChannelGridArtifacts:
+    """Generate a small physical channel grid centred on a pass event."""
+
+    reference = _utc(reference_utc, "reference_utc")
+    if reference_event not in REFERENCE_EVENT_KEYS:
+        raise ValueError("reference_event is not supported")
+    if not np.isfinite(minimum_elevation_deg) or not (
+        -90.0 <= minimum_elevation_deg <= 90.0
+    ):
+        raise ValueError("minimum_elevation_deg must be in [-90, 90]")
+
+    axes = _centred_frame_axes(config, symbol_count)
+    anchor_offsets_s = _anchor_offsets_s(
+        axes,
+        config.channel_state.geometry_source_step_s,
+    )
+    anchor_datetimes = [
+        reference + timedelta(seconds=float(offset))
+        for offset in anchor_offsets_s
+    ]
+    satellite = satrec_from_omm(dict(omm_record))
+    source_state = sgp4_downlink_state_si(
+        anchor_datetimes,
+        satellite,
+        config.radio.carrier_frequency_hz,
+        station,
+        minimum_elevation_rad=np.deg2rad(minimum_elevation_deg),
+        time_origin_utc=reference,
+        phase_reference_utc=reference,
+    )
+    symbol_state = resample_downlink_state_si(
+        source_state,
+        axes.time.time_s,
+        config.radio.carrier_frequency_hz,
+        minimum_elevation_rad=np.deg2rad(minimum_elevation_deg),
+    )
+    grid = evaluate_siso_ofdm_channel_grid(
+        symbol_state,
+        axes,
+        other_losses_db=other_losses_db,
+    )
+
+    output_directory.mkdir(parents=True, exist_ok=True)
+    artifacts = ChannelGridArtifacts(
+        channel_grid_npz=output_directory / "channel_grid.npz",
+        time_axis_csv=output_directory / "time_axis.csv",
+        frequency_axis_csv=output_directory / "frequency_axis.csv",
+        summary_json=output_directory / "summary.json",
+        heatmap_png=output_directory / "channel_grid_heatmap.png",
+        slices_png=output_directory / "channel_grid_slices.png",
+    )
+    save_siso_channel_grid_npz(grid, artifacts.channel_grid_npz)
+    _save_axes_csv(
+        axes,
+        reference,
+        artifacts.time_axis_csv,
+        artifacts.frequency_axis_csv,
+    )
+    artifacts.summary_json.write_text(
+        json.dumps(
+            _summary(
+                grid,
+                config,
+                omm_record,
+                reference,
+                reference_event,
+                anchor_offsets_s,
+            ),
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    _save_heatmap(grid, artifacts.heatmap_png)
+    _save_slices(grid, artifacts.slices_png)
+    return artifacts
+
+
+def _load_json(path: Path) -> Any:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def main() -> None:
+    """CLI entry point using the existing SGP4 pass artifacts."""
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", type=Path, default=DEFAULT_BASELINE_PATH)
+    parser.add_argument(
+        "--source-omm",
+        type=Path,
+        default=DEFAULT_SOURCE_OMM_PATH,
+    )
+    parser.add_argument(
+        "--geometry-summary",
+        type=Path,
+        default=DEFAULT_GEOMETRY_SUMMARY_PATH,
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=DEFAULT_CHANNEL_GRID_OUTPUT_DIRECTORY,
+    )
+    parser.add_argument("--symbol-count", type=int, default=256)
+    parser.add_argument("--other-losses-db", type=float, default=0.0)
+    parser.add_argument(
+        "--reference-event",
+        choices=tuple(REFERENCE_EVENT_KEYS),
+        default="closest_approach",
+    )
+    args = parser.parse_args()
+
+    config = load_research_baseline(args.config)
+    omm_data = _load_json(args.source_omm)
+    if not isinstance(omm_data, list) or not omm_data:
+        raise ValueError("source OMM JSON must be a non-empty list")
+    geometry_summary = _load_json(args.geometry_summary)
+    selected_pass = geometry_summary["selected_pass"]
+    reference_utc = _parse_utc(
+        selected_pass[REFERENCE_EVENT_KEYS[args.reference_event]]
+    )
+    station = GroundStation(**geometry_summary["station"])
+    norad_id = int(geometry_summary["norad_catalog_id"])
+    matching_records = [
+        record
+        for record in omm_data
+        if int(record["NORAD_CAT_ID"]) == norad_id
+    ]
+    if len(matching_records) != 1:
+        raise ValueError("source OMM must contain exactly one matching NORAD ID")
+    artifacts = run_channel_grid_simulation(
+        args.output,
+        config=config,
+        omm_record=matching_records[0],
+        reference_utc=reference_utc,
+        station=station,
+        minimum_elevation_deg=float(
+            geometry_summary["minimum_elevation_deg"]
+        ),
+        symbol_count=args.symbol_count,
+        other_losses_db=args.other_losses_db,
+        reference_event=args.reference_event,
+    )
+    print(
+        json.dumps(
+            {
+                name: str(path)
+                for name, path in asdict(artifacts).items()
+            },
+            indent=2,
+        )
+    )
+
+
+if __name__ == "__main__":
+    main()
