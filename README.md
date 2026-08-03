@@ -52,11 +52,55 @@ B_{\mathrm{occupied}}\approx K_{\mathrm{active}}\Delta f
 | CP 포함 심벌시간 | 37.5 us |
 | 원본 기하 상태 간격 | 1 s |
 | 채널 갱신 간격 | 1 ms |
-| 상태 재표본화 | cubic Hermite, 직접 SGP4로 검증 예정 |
+| 상태 재표본화 | cubic Hermite, 직접 SGP4로 검증 완료 |
+| 채널 grid 시간 기준 | OFDM FFT 구간 중앙 |
+| 부반송파 인덱스 | signed FFT index |
 
 활성 부반송파의 정확한 배치, pilot 위치 및 파형 정규화는 팀 통합 전에
 확정해야 하며 YAML의 `team_confirmation.fields`에 표시한다. 기존 10 GHz
 ideal·SGP4 산출물은 재현성 보존을 위해 이 설정으로 자동 변경하지 않는다.
+
+## OFDM 채널 grid 축
+
+`build_ofdm_channel_grid_axes`는 아직 채널값을 계산하지 않고 SISO 채널
+`H[m, k]`의 좌표만 정의한다. 배열의 첫 번째 축 `m`은 OFDM 심벌, 두 번째
+축 `k`는 활성 부반송파이다. 시간은 `DownlinkStateSI.time_s`와 동일한 상대
+시간 원점을 사용한다.
+
+```python
+from starlink_isl import build_ofdm_channel_grid_axes, load_research_baseline
+
+baseline = load_research_baseline("configs/ofdm_baseline.yaml")
+axes = build_ofdm_channel_grid_axes(
+    baseline.ofdm,
+    baseline.radio.carrier_frequency_hz,
+    symbol_count=8,
+    symbol_time_reference=baseline.channel_grid.symbol_time_reference,
+)
+
+assert axes.shape == (8, 200)
+```
+
+현재 임시 활성 배치는 DC를 비우고
+`[-100, ..., -1, 1, ..., 100]`으로 둔다. 이는 중심주파수 기준 signed
+index이며 NumPy FFT 배열에서 바로 사용할 `fft_bin_indices`도 함께 제공한다.
+
+\[
+f_k=k\Delta f,\qquad f_{\mathrm{RF},k}=f_{\mathrm{carrier}}+f_k
+\]
+
+기본 채널 평가 시각은 CP 뒤 유효 FFT 구간의 중앙이다.
+
+\[
+t_m=t_{\mathrm{frame}}
++mT_{\mathrm{OFDM}}+T_{\mathrm{CP}}+\frac{T_{\mathrm{useful}}}{2}
+\]
+
+1 ms `channel_state.update_interval_s`는 전체 패스의 상태 기록과 블록 채널에
+사용하는 기준 갱신 간격이고, `H[m,k]`는 프레임 안의 실제 OFDM 심벌 시각에
+평가한다. Cubic Hermite는 1 ms에 제한되지 않으므로 필요한 심벌 시각을
+직접 목표 시각으로 전달할 수 있다. 정확한 활성 배치와 심벌 시간 기준은
+민영님의 송수신기와 합칠 때 YAML 값 또는 명시적 index 입력만 교체한다.
 
 ## 채널 상태 재표본화
 

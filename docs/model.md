@@ -589,7 +589,59 @@ T_{\rm OFDM}
 정확한 활성 부반송파 배치, pilot, 파형 정규화 및 최종 numerology는 팀
 합의 후 YAML 값만 변경한다. 채널 코드는 이 값들을 하드코딩하지 않는다.
 
-## 18. SGP4 anchor와 cubic Hermite 재표본화
+## 18. OFDM 채널 grid의 시간·주파수 축
+
+SISO 시간-주파수 채널은 `H[m,k]` 형태로 두며 행 `m`은 OFDM 심벌,
+열 `k`는 활성 부반송파를 뜻한다. 이 단계에서는 채널값을 계산하지 않고
+두 좌표와 배열 차원만 확정한다.
+
+부반송파는 중심주파수에 대한 signed FFT index를 사용한다.
+
+\[
+f_k=k\Delta f,\qquad
+f_{\mathrm{RF},k}=f_{\mathrm{carrier}}+k\Delta f
+\]
+
+현재 임시 DC-null 배치는
+
+\[
+k\in\{-100,\ldots,-1,1,\ldots,100\}
+\]
+
+이며, FFT 배열 접근용 index는 `k mod N_FFT`로 별도 제공한다. 따라서
+signed index `-100`은 `N_FFT=256`일 때 FFT bin `156`에 해당한다. signed
+index는 물리 주파수 계산에, FFT bin index는 민영님의 FFT 배열 연결에
+사용한다. 명시적인 index 배열을 함수에 넘기면 최종 팀 배치를 그대로 쓸
+수 있다.
+
+한 심벌을 대표하는 채널 시각은 기본적으로 CP가 끝난 뒤 유효 FFT 구간의
+중앙으로 정의한다.
+
+\[
+t_m=t_{\mathrm{frame}}+mT_{\mathrm{OFDM}}
++T_{\mathrm{CP}}+\frac{T_{\mathrm{useful}}}{2}
+\]
+
+이는 채널이 한 심벌 동안 거의 일정하다는 근사에서 FFT 구간을 대표하는
+명확한 시각이다. 필요하면 `symbol_start` 또는 `fft_window_start`로 바꿀 수
+있으나 송수신기와 통합할 때 동일한 기준을 사용해야 한다.
+
+1 ms 채널 상태 갱신 간격과 37.5 us OFDM 심벌 간격은 서로 다른 목적의
+시간축이다. 1 ms는 전체 패스 기록 및 블록 채널 상태의 기준 간격이고,
+`H[m,k]`를 만들 때는 Hermite 상태를 각 OFDM 심벌 평가 시각에 다시 표본화한다.
+따라서 최종 grid의 시간 차원은 1 ms 간격으로 제한되지 않는다. 전체 패스의
+모든 심벌을 한 배열에 담지 않고 실제 프레임 단위로 생성한다.
+
+현재 코드가 확정한 인터페이스는 다음과 같다.
+
+- `OFDMTimeAxis`: 심벌 번호, 심벌 시작 시각, 채널 평가 시각
+- `OFDMFrequencyAxis`: signed index, FFT bin, baseband/RF 주파수
+- `OFDMChannelGridAxes.shape`: `(symbol_count, active_subcarrier_count)`
+
+활성 부반송파 배치와 심벌 평가 기준은 아직 provisional이며
+`team_confirmation.fields`에 남겨 둔다.
+
+## 19. SGP4 anchor와 cubic Hermite 재표본화
 
 SGP4는 OMM 궤도요소로 임의의 UTC에서 위성 위치와 속도를 직접 계산하는
 기준 궤도 전파 모델이다. Cubic Hermite는 SGP4로 계산한 두 anchor 상태의

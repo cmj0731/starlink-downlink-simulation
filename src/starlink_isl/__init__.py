@@ -12,6 +12,15 @@ from starlink_isl.cfo_compensation import (
     compensate_siso_channel_doppler,
     compensate_siso_channel_sequence_doppler,
 )
+from starlink_isl.channel_grid import (
+    OFDMChannelGridAxes,
+    OFDMFrequencyAxis,
+    OFDMTimeAxis,
+    build_ofdm_channel_grid_axes,
+    build_ofdm_frequency_axis,
+    build_ofdm_time_axis,
+    centered_active_subcarrier_indices,
+)
 from starlink_isl.downlink_dynamics import (
     SPEED_OF_LIGHT_KM_S,
     DownlinkDynamics,
@@ -67,6 +76,7 @@ from starlink_isl.receiver_filter import (
     design_receiver_filter,
 )
 from starlink_isl.research_config import (
+    ChannelGridBaseline,
     ChannelStateSampling,
     OFDMNumerology,
     ResearchBaselineConfig,
@@ -97,6 +107,7 @@ __all__ = [
     "ActualPass",
     "CFOCompensationResult",
     "CFOSequenceCompensationResult",
+    "ChannelGridBaseline",
     "ChannelStateSampling",
     "DownlinkDynamics",
     "DownlinkGeometry",
@@ -106,6 +117,9 @@ __all__ = [
     "LinkBudgetConfig",
     "LinkBudgetResult",
     "OFDMNumerology",
+    "OFDMChannelGridAxes",
+    "OFDMFrequencyAxis",
+    "OFDMTimeAxis",
     "PilotQPSKSnapshot",
     "QPSKSnapshot",
     "ReceiverFilterConfig",
@@ -123,6 +137,10 @@ __all__ = [
     "SPEED_OF_LIGHT_KM_S",
     "VisibilityWindow",
     "apply_receiver_filter",
+    "build_ofdm_channel_grid_axes",
+    "build_ofdm_frequency_axis",
+    "build_ofdm_time_axis",
+    "centered_active_subcarrier_indices",
     "compensate_cfo",
     "compensate_siso_channel_doppler",
     "compensate_siso_channel_sequence_doppler",

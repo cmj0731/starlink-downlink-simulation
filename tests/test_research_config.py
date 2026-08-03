@@ -53,6 +53,9 @@ def test_baseline_separates_geometry_source_and_channel_update_intervals():
     assert config.channel_state.update_interval_s == pytest.approx(0.001)
     assert config.channel_state.resampling_method == "cubic_hermite"
     assert config.channel_state.validate_against_direct_sgp4 is True
+    assert config.channel_grid.time_axis == "ofdm_symbol"
+    assert config.channel_grid.symbol_time_reference == "fft_window_center"
+    assert config.channel_grid.subcarrier_index_convention == "signed_fft"
 
 
 def test_baseline_receiver_filter_is_compatible_with_ofdm_bandwidth():
@@ -87,6 +90,9 @@ def test_baseline_marks_fields_requiring_team_confirmation():
 
     assert config.team_confirmation.required_before_final_integration is True
     assert "ofdm.active_subcarrier_layout" in config.team_confirmation.fields
+    assert "channel_grid.symbol_time_reference" in (
+        config.team_confirmation.fields
+    )
     assert "ofdm.pilot_layout" in config.team_confirmation.fields
 
 
@@ -111,6 +117,14 @@ def test_config_rejects_channel_update_slower_than_source(tmp_path):
     mapping["channel_state"]["update_interval_s"] = 2.0
 
     with pytest.raises(ValueError, match="cannot exceed"):
+        load_research_baseline(_write_config(tmp_path, mapping))
+
+
+def test_config_rejects_unsupported_channel_grid_convention(tmp_path):
+    mapping = _baseline_mapping()
+    mapping["channel_grid"]["subcarrier_index_convention"] = "fftshifted"
+
+    with pytest.raises(ValueError, match="signed_fft"):
         load_research_baseline(_write_config(tmp_path, mapping))
 
 

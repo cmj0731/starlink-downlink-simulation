@@ -19,7 +19,12 @@ ofdm:
   cyclic_prefix_samples: 32
   modulation: QPSK
   dc_subcarrier_null: true
-  active_subcarrier_layout: pending_team_confirmation
+  active_subcarrier_layout: centered_dc_null_provisional
+
+channel_grid:
+  time_axis: ofdm_symbol
+  symbol_time_reference: fft_window_center
+  subcarrier_index_convention: signed_fft
 
 channel_state:
   geometry_source_step_s: 1.0
@@ -60,5 +65,6 @@ team_confirmation:
     - ofdm.active_subcarrier_count
     - ofdm.cyclic_prefix_samples
     - ofdm.active_subcarrier_layout
+    - channel_grid.symbol_time_reference
     - ofdm.pilot_layout
     - ofdm.waveform_normalization

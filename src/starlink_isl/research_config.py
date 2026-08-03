@@ -210,6 +210,31 @@ class ChannelStateSampling:
 
 
 @dataclass(frozen=True, slots=True)
+class ChannelGridBaseline:
+    """Coordinate conventions for the provisional SISO ``H[m, k]`` grid."""
+
+    time_axis: str
+    symbol_time_reference: str
+    subcarrier_index_convention: str
+
+    def __post_init__(self) -> None:
+        if self.time_axis != "ofdm_symbol":
+            raise ValueError("channel_grid.time_axis must be ofdm_symbol")
+        if self.symbol_time_reference not in {
+            "symbol_start",
+            "fft_window_start",
+            "fft_window_center",
+        }:
+            raise ValueError(
+                "channel_grid.symbol_time_reference is not supported"
+            )
+        if self.subcarrier_index_convention != "signed_fft":
+            raise ValueError(
+                "channel_grid.subcarrier_index_convention must be signed_fft"
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class ReceiverFilterBaseline:
     """Provisional complex-baseband receiver-filter edges."""
 
@@ -276,6 +301,7 @@ class ResearchBaselineConfig:
     radio: RadioBaseline
     ofdm: OFDMNumerology
     channel_state: ChannelStateSampling
+    channel_grid: ChannelGridBaseline
     receiver_filter: ReceiverFilterBaseline
     experiments: ExperimentSweeps
     team_confirmation: TeamConfirmation
@@ -315,6 +341,7 @@ def load_research_baseline(path: str | Path) -> ResearchBaselineConfig:
     radio = _mapping(raw, "radio")
     ofdm = _mapping(raw, "ofdm")
     channel = _mapping(raw, "channel_state")
+    channel_grid = _mapping(raw, "channel_grid")
     receiver_filter = _mapping(raw, "receiver_filter")
     experiments = _mapping(raw, "experiments")
     confirmation = _mapping(raw, "team_confirmation")
@@ -402,6 +429,23 @@ def load_research_baseline(path: str | Path) -> ResearchBaselineConfig:
                 "channel_state",
             ),
         ),
+        channel_grid=ChannelGridBaseline(
+            time_axis=_str_value(
+                channel_grid,
+                "time_axis",
+                "channel_grid",
+            ),
+            symbol_time_reference=_str_value(
+                channel_grid,
+                "symbol_time_reference",
+                "channel_grid",
+            ),
+            subcarrier_index_convention=_str_value(
+                channel_grid,
+                "subcarrier_index_convention",
+                "channel_grid",
+            ),
+        ),
         receiver_filter=ReceiverFilterBaseline(
             passband_edge_hz=_float_value(
                 receiver_filter,
@@ -459,6 +503,15 @@ def main() -> None:
             config.scenario.represents_actual_starlink_waveform
         ),
         "derived": config.derived_values(),
+        "channel_grid": {
+            "time_axis": config.channel_grid.time_axis,
+            "symbol_time_reference": (
+                config.channel_grid.symbol_time_reference
+            ),
+            "subcarrier_index_convention": (
+                config.channel_grid.subcarrier_index_convention
+            ),
+        },
         "team_confirmation_required": (
             config.team_confirmation.required_before_final_integration
         ),
