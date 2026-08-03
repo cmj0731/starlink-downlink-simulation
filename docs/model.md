@@ -700,7 +700,29 @@ L_{\mathrm{FSPL}}[m,k]
   절대 위성 전파시간 자체를 흡수하는 장치가 아니다.
 - 현재 결과에는 multipath, 안테나 이득, beamforming 및 AWGN이 없다.
 
-`channel_grid.npz`에는 복소 채널과 함께 시간축, signed/자연 FFT/shifted FFT
+### 19.1 Raw 채널과 위상 동기화 후 채널
+
+Raw 채널은 전체 carrier Doppler 위상과 절대 전파지연 위상을 포함한다.
+예측값 \(\hat\phi_D[m]\), \(\hat\tau[m]\)을 제거한 채널은
+
+\[
+H_{\rm sync}[m,k]
+=a[m,k]
+\exp\left(j(\phi_D[m]-\hat\phi_D[m])\right)
+\exp\left(-j2\pi f_k(\tau[m]-\hat\tau[m])\right)
+\]
+
+로 정의한다. FSPL과 기타 scalar loss 진폭은 제거하지 않는다. 구현은 큰
+절대 delay phasor 두 개를 직접 곱해 상쇄하지 않고 residual delay와 residual
+carrier phase에서 `H_sync`를 다시 구성해 수치 정밀도를 유지한다.
+
+현재 기본 산출물의 `perfect_same_state_prediction`은 raw 채널을 만든 것과
+같은 SGP4/Hermite 상태를 예측값으로 사용하는 검증용 상한선이다. 따라서
+잔류 delay와 phase는 정확히 0이고 `H_sync=a`가 된다. 이 단계는 실제 receiver
+estimator, pilot 추정 또는 OFDM 결합을 포함하지 않는다. 예측 carrier phase는
+raw 채널과 동일한 기준 이벤트와 상수 위상 기준을 사용해야 한다.
+
+`channel_grid.npz`에는 raw 복소 채널과 함께 시간축, signed/자연 FFT/shifted FFT
 주파수축,
 거리, 지연, radial velocity, Doppler, FSPL 및 위상 항을 저장한다. CSV는
 두 축을 사람이 읽기 위한 파일이고 PNG는 크기·wrapped phase heatmap과
@@ -711,6 +733,10 @@ L_{\mathrm{FSPL}}[m,k]
 시간-주파수 표의 관례에 맞춰 x축을 시간, y축을 주파수로 표시하므로 시각화
 단계에서만 `H.T`를 사용한다. 이 전치는 저장 형식이나 채널 계산식을 바꾸지
 않는다.
+
+`synchronized_channel_grid.npz`에는 `H_sync`, raw 채널, 예측 delay/phase,
+잔류 delay/phase 및 예측 label을 저장한다. `synchronization_comparison.png`는
+동일한 시간-주파수축에서 raw wrapped phase와 동기화 후 잔류 phase를 비교한다.
 
 ## 20. SGP4 anchor와 cubic Hermite 재표본화
 

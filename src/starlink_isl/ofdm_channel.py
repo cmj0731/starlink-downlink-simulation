@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from numpy.typing import NDArray
+from numpy.typing import ArrayLike, NDArray
 
 from starlink_isl.channel_grid import OFDMChannelGridAxes
 from starlink_isl.downlink_dynamics import SPEED_OF_LIGHT_KM_S
@@ -24,7 +24,7 @@ def _read_only(values: NDArray) -> NDArray:
 
 
 def _state_values(
-    values: NDArray,
+    values: ArrayLike,
     expected_shape: tuple[int, ...],
     name: str,
 ) -> FloatArray:
@@ -62,6 +62,35 @@ class SISOChannelGrid:
     @property
     def shape(self) -> tuple[int, int]:
         return self.axes.shape
+
+
+@dataclass(frozen=True, slots=True)
+class SynchronizedSISOChannelGrid:
+    """Raw channel after predicted bulk delay and Doppler phase removal.
+
+    Only deterministic phase terms are removed. Free-space attenuation and
+    optional scalar losses remain in ``channel_response``. Residual fields are
+    truth minus prediction, so perfect prediction produces a positive-real
+    response equal to the raw path-amplitude gain.
+    """
+
+    raw_grid: SISOChannelGrid
+    channel_response: ComplexArray
+    predicted_propagation_delay_s: FloatArray
+    predicted_carrier_doppler_phase_rad: FloatArray
+    residual_propagation_delay_s: FloatArray
+    residual_carrier_doppler_phase_rad: FloatArray
+    residual_delay_phase_rad: FloatArray
+    residual_total_phase_rad: FloatArray
+    prediction_label: str
+
+    @property
+    def axes(self) -> OFDMChannelGridAxes:
+        return self.raw_grid.axes
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        return self.raw_grid.shape
 
 
 def evaluate_siso_ofdm_channel_grid(
@@ -203,6 +232,84 @@ def evaluate_siso_ofdm_channel_grid(
     )
 
 
+def synchronize_siso_ofdm_channel_grid(
+    grid: SISOChannelGrid,
+    predicted_propagation_delay_s: ArrayLike,
+    predicted_carrier_doppler_phase_rad: ArrayLike,
+    *,
+    prediction_label: str = "external_prediction",
+) -> SynchronizedSISOChannelGrid:
+    """Remove predicted bulk delay and carrier-Doppler phase from ``grid``.
+
+    The synchronized channel is evaluated from residual phase quantities for
+    numerical stability instead of multiplying two very large, nearly
+    cancelling absolute-delay phasors:
+
+    ``H_sync = a exp(j*(phi_D-phi_D_pred))``
+    ``             exp(-j*2*pi*f_k*(tau-tau_pred))``.
+
+    This is a channel-side ideal phase-synchronization model, not a receiver
+    estimator and not an OFDM transmitter/receiver integration.
+    """
+
+    if not isinstance(prediction_label, str) or not prediction_label.strip():
+        raise ValueError("prediction_label must be a non-empty string")
+    symbol_count, subcarrier_count = grid.shape
+    expected_time_shape = (symbol_count,)
+    predicted_delay_s = _state_values(
+        predicted_propagation_delay_s,
+        expected_time_shape,
+        "predicted_propagation_delay_s",
+    )
+    if np.any(predicted_delay_s <= 0.0):
+        raise ValueError("predicted propagation delay must be positive")
+    predicted_carrier_phase_rad = _state_values(
+        predicted_carrier_doppler_phase_rad,
+        expected_time_shape,
+        "predicted_carrier_doppler_phase_rad",
+    )
+
+    residual_delay_s = grid.propagation_delay_s - predicted_delay_s
+    residual_carrier_phase_rad = (
+        grid.carrier_doppler_phase_rad - predicted_carrier_phase_rad
+    )
+    baseband_frequency_hz = np.asarray(
+        grid.axes.frequency.baseband_frequency_hz,
+        dtype=np.float64,
+    )
+    if baseband_frequency_hz.shape != (subcarrier_count,):
+        raise ValueError("grid frequency axis is inconsistent with its shape")
+    residual_delay_phase_rad = (
+        -2.0
+        * np.pi
+        * residual_delay_s[:, None]
+        * baseband_frequency_hz[None, :]
+    )
+    residual_total_phase_rad = (
+        residual_carrier_phase_rad[:, None] + residual_delay_phase_rad
+    )
+    synchronized_response = grid.path_amplitude_gain * np.exp(
+        1j * residual_total_phase_rad
+    )
+    return SynchronizedSISOChannelGrid(
+        raw_grid=grid,
+        channel_response=_read_only(
+            np.asarray(synchronized_response, dtype=np.complex128)
+        ),
+        predicted_propagation_delay_s=_read_only(predicted_delay_s),
+        predicted_carrier_doppler_phase_rad=_read_only(
+            predicted_carrier_phase_rad
+        ),
+        residual_propagation_delay_s=_read_only(residual_delay_s),
+        residual_carrier_doppler_phase_rad=_read_only(
+            residual_carrier_phase_rad
+        ),
+        residual_delay_phase_rad=_read_only(residual_delay_phase_rad),
+        residual_total_phase_rad=_read_only(residual_total_phase_rad),
+        prediction_label=prediction_label.strip(),
+    )
+
+
 def save_siso_channel_grid_npz(
     grid: SISOChannelGrid,
     path: str | Path,
@@ -241,6 +348,51 @@ def save_siso_channel_grid_npz(
         other_losses_db=np.asarray(grid.other_losses_db),
         model=np.asarray(
             "LOS SISO FSPL + carrier Doppler phase + absolute delay phase"
+        ),
+    )
+    return output_path
+
+
+def save_synchronized_siso_channel_grid_npz(
+    synchronized: SynchronizedSISOChannelGrid,
+    path: str | Path,
+) -> Path:
+    """Save synchronized and raw responses with phase-error metadata."""
+
+    grid = synchronized.raw_grid
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        output_path,
+        channel_response=synchronized.channel_response,
+        raw_channel_response=grid.channel_response,
+        time_s=grid.axes.time.time_s,
+        symbol_indices=grid.axes.time.symbol_indices,
+        signed_subcarrier_indices=(
+            grid.axes.frequency.signed_subcarrier_indices
+        ),
+        fft_bin_indices=grid.axes.frequency.fft_bin_indices,
+        fftshift_bin_indices=grid.axes.frequency.fftshift_bin_indices,
+        baseband_frequency_hz=grid.axes.frequency.baseband_frequency_hz,
+        rf_frequency_hz=grid.axes.frequency.rf_frequency_hz,
+        path_amplitude_gain=grid.path_amplitude_gain,
+        predicted_propagation_delay_s=(
+            synchronized.predicted_propagation_delay_s
+        ),
+        predicted_carrier_doppler_phase_rad=(
+            synchronized.predicted_carrier_doppler_phase_rad
+        ),
+        residual_propagation_delay_s=(
+            synchronized.residual_propagation_delay_s
+        ),
+        residual_carrier_doppler_phase_rad=(
+            synchronized.residual_carrier_doppler_phase_rad
+        ),
+        residual_delay_phase_rad=synchronized.residual_delay_phase_rad,
+        residual_total_phase_rad=synchronized.residual_total_phase_rad,
+        prediction_label=np.asarray(synchronized.prediction_label),
+        model=np.asarray(
+            "SISO raw channel with predicted delay and Doppler phase removed"
         ),
     )
     return output_path

@@ -10,6 +10,8 @@ from starlink_isl import (
     ideal_downlink_state_si,
     load_research_baseline,
     save_siso_channel_grid_npz,
+    save_synchronized_siso_channel_grid_npz,
+    synchronize_siso_ofdm_channel_grid,
 )
 from starlink_isl.downlink_dynamics import SPEED_OF_LIGHT_KM_S
 
@@ -128,6 +130,74 @@ def test_dc_channel_phase_matches_carrier_doppler_phase(baseline):
     )
 
 
+def test_perfect_phase_synchronization_retains_only_path_gain(baseline):
+    grid = _ideal_grid(baseline)
+    synchronized = synchronize_siso_ofdm_channel_grid(
+        grid,
+        grid.propagation_delay_s,
+        grid.carrier_doppler_phase_rad,
+        prediction_label="perfect_truth_prediction",
+    )
+
+    assert synchronized.shape == grid.shape
+    assert synchronized.channel_response == pytest.approx(
+        grid.path_amplitude_gain.astype(np.complex128),
+        abs=0.0,
+    )
+    assert synchronized.residual_propagation_delay_s == pytest.approx(0.0)
+    assert synchronized.residual_carrier_doppler_phase_rad == pytest.approx(
+        0.0
+    )
+    assert synchronized.residual_total_phase_rad == pytest.approx(0.0)
+    assert np.abs(synchronized.channel_response) == pytest.approx(
+        np.abs(grid.channel_response)
+    )
+    assert synchronized.channel_response.flags.writeable is False
+
+
+def test_synchronization_exposes_known_delay_and_carrier_phase_errors(baseline):
+    grid = _ideal_grid(baseline)
+    delay_error_s = 12.0e-9
+    carrier_phase_error_rad = 0.35
+    synchronized = synchronize_siso_ofdm_channel_grid(
+        grid,
+        grid.propagation_delay_s - delay_error_s,
+        grid.carrier_doppler_phase_rad - carrier_phase_error_rad,
+    )
+    expected_phase_rad = (
+        carrier_phase_error_rad
+        - 2.0
+        * np.pi
+        * delay_error_s
+        * grid.axes.frequency.baseband_frequency_hz[None, :]
+    )
+    expected_response = grid.path_amplitude_gain * np.exp(
+        1j * expected_phase_rad
+    )
+
+    assert synchronized.residual_propagation_delay_s == pytest.approx(
+        delay_error_s
+    )
+    assert synchronized.residual_carrier_doppler_phase_rad == pytest.approx(
+        carrier_phase_error_rad
+    )
+    assert synchronized.channel_response == pytest.approx(
+        expected_response,
+        abs=1.0e-18,
+    )
+
+
+def test_synchronization_rejects_prediction_with_wrong_shape(baseline):
+    grid = _ideal_grid(baseline)
+
+    with pytest.raises(ValueError, match="predicted_propagation_delay_s"):
+        synchronize_siso_ofdm_channel_grid(
+            grid,
+            grid.propagation_delay_s[:-1],
+            grid.carrier_doppler_phase_rad,
+        )
+
+
 def test_grid_rejects_state_with_different_times(baseline):
     axes = build_ofdm_channel_grid_axes(
         baseline.ofdm,
@@ -175,3 +245,32 @@ def test_grid_npz_contains_complex_response_and_coordinates(baseline, tmp_path):
             grid.axes.frequency.fftshift_bin_indices,
         )
         assert saved["model"].item().startswith("LOS SISO")
+
+
+def test_synchronized_grid_npz_contains_raw_and_residual_channels(
+    baseline,
+    tmp_path,
+):
+    grid = _ideal_grid(baseline, symbol_count=3)
+    synchronized = synchronize_siso_ofdm_channel_grid(
+        grid,
+        grid.propagation_delay_s,
+        grid.carrier_doppler_phase_rad,
+        prediction_label="perfect_truth_prediction",
+    )
+    path = save_synchronized_siso_channel_grid_npz(
+        synchronized,
+        tmp_path / "synchronized_channel_grid.npz",
+    )
+
+    with np.load(path, allow_pickle=False) as saved:
+        assert saved["channel_response"].shape == (3, 223)
+        assert np.array_equal(
+            saved["raw_channel_response"],
+            grid.channel_response,
+        )
+        assert np.array_equal(
+            saved["channel_response"],
+            synchronized.channel_response,
+        )
+        assert saved["prediction_label"].item() == "perfect_truth_prediction"

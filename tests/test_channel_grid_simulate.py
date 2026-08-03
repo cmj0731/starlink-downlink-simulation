@@ -46,6 +46,16 @@ def test_channel_grid_simulation_writes_viewable_artifacts(tmp_path):
     with np.load(artifacts.channel_grid_npz, allow_pickle=False) as saved:
         assert saved["channel_response"].shape == (16, 223)
         assert saved["time_s"][0] < 0.0 < saved["time_s"][-1]
+    with np.load(
+        artifacts.synchronized_channel_grid_npz,
+        allow_pickle=False,
+    ) as saved:
+        synchronized_response = saved["channel_response"]
+        assert synchronized_response.shape == (16, 223)
+        assert np.max(np.abs(np.angle(synchronized_response))) == 0.0
+        assert saved["prediction_label"].item() == (
+            "perfect_same_state_prediction"
+        )
     time_axis = pd.read_csv(artifacts.time_axis_csv)
     frequency_axis = pd.read_csv(artifacts.frequency_axis_csv)
     assert len(time_axis) == 16
@@ -62,5 +72,12 @@ def test_channel_grid_simulation_writes_viewable_artifacts(tmp_path):
         "displayed_values": "transpose of H[m,k] for visualization only",
     }
     assert summary["waveform_bin_order"] == "fftshifted"
+    synchronization = summary["phase_synchronization"]
+    assert synchronization["prediction_label"] == (
+        "perfect_same_state_prediction"
+    )
+    assert synchronization["maximum_absolute_residual_delay_s"] == 0.0
+    assert synchronization["maximum_absolute_residual_total_phase_rad"] == 0.0
+    assert synchronization["maximum_magnitude_change_db"] == 0.0
     assert summary["norad_catalog_id"] == 55296
     assert summary["scope_limitations"][1].startswith("within-symbol Doppler")

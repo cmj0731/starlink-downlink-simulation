@@ -132,10 +132,12 @@ python -m starlink_isl.channel_grid_simulate
 | 파일 | 내용 |
 |---|---|
 | `channel_grid.npz` | 복소 `H[m,k]`, 두 축, 거리·지연·Doppler·FSPL |
+| `synchronized_channel_grid.npz` | 예측 지연·Doppler 위상을 제거한 `H_sync[m,k]`와 잔류 오차 |
 | `time_axis.csv` | 심벌 번호, 시작 시각, 채널 평가 시각 및 UTC |
 | `frequency_axis.csv` | signed index, 자연/shifted FFT bin, baseband/RF 주파수 |
 | `summary.json` | 모델 범위, grid 크기 및 물리량 최솟값·최댓값 |
 | `channel_grid_heatmap.png` | x축 시간, y축 주파수인 `H[m,k]` 크기·위상 heatmap |
+| `synchronization_comparison.png` | raw 위상과 동기화 후 잔류 위상 비교 |
 | `channel_grid_slices.png` | 특정 시각·부반송파의 주파수/시간 단면 |
 
 채널식은 다음과 같다.
@@ -153,6 +155,21 @@ Doppler가 심벌 안에서 만드는 ICI는 포함하지 않으며 시간영역
 ICI 연산자가 필요하다. 또한 절대 지연을 주파수 위상으로 기록한 것이므로,
 실제 FFT 심벌에 적용하기 전에는 수신기 timing alignment 기준과 맞춰야 한다.
 CP가 수 ms 절대 전파 지연을 대신 보상하는 것은 아니다.
+
+채널 단계에서 예측한 bulk delay와 carrier Doppler 위상만 제거한 동기화 후
+채널도 별도로 계산한다.
+
+\[
+H_{\mathrm{sync}}[m,k]
+=a[m,k]e^{j(\phi_D[m]-\hat\phi_D[m])}
+e^{-j2\pi f_k(\tau[m]-\hat\tau[m])}
+\]
+
+기본 산출물은 같은 SGP4/Hermite 상태를 완벽한 예측값으로 사용하는 상한선
+검증이므로 잔류 위상은 0이고 FSPL 진폭은 그대로 남는다. 이는 실제 동기화
+추정기를 구현하거나 OFDM 송수신기와 결합한 것이 아니다. 이후 예측 오차를
+주면 잔류 delay와 carrier phase만 `H_sync`에 나타난다. 예측 carrier phase는
+raw 채널과 동일한 기준 이벤트에서 위상 0을 정의해야 한다.
 
 내부 배열은 계산을 위해 `(time, frequency)` 순서인 `H[m,k]`로 저장한다.
 Heatmap은 일반적인 시간-주파수 표처럼 x축을 시간, y축을 주파수로 두기

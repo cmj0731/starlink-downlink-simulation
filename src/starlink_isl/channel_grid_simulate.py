@@ -23,8 +23,11 @@ from starlink_isl.channel_grid import (
 )
 from starlink_isl.ofdm_channel import (
     SISOChannelGrid,
+    SynchronizedSISOChannelGrid,
     evaluate_siso_ofdm_channel_grid,
     save_siso_channel_grid_npz,
+    save_synchronized_siso_channel_grid_npz,
+    synchronize_siso_ofdm_channel_grid,
 )
 from starlink_isl.research_config import (
     DEFAULT_BASELINE_PATH,
@@ -51,10 +54,12 @@ class ChannelGridArtifacts:
     """Paths produced by one frame-sized channel-grid simulation."""
 
     channel_grid_npz: Path
+    synchronized_channel_grid_npz: Path
     time_axis_csv: Path
     frequency_axis_csv: Path
     summary_json: Path
     heatmap_png: Path
+    synchronization_comparison_png: Path
     slices_png: Path
 
 
@@ -213,6 +218,65 @@ def _save_heatmap(grid: SISOChannelGrid, path: Path) -> None:
     plt.close(figure)
 
 
+def _save_synchronization_comparison(
+    synchronized: SynchronizedSISOChannelGrid,
+    path: Path,
+) -> None:
+    """Plot raw and residual wrapped phase on identical time/frequency axes."""
+
+    raw_grid = synchronized.raw_grid
+    frequency_mhz = raw_grid.axes.frequency.baseband_frequency_hz / 1.0e6
+    time_ms = raw_grid.axes.time.time_s * 1.0e3
+    raw_phase_rad = np.angle(raw_grid.channel_response)
+    synchronized_phase_rad = np.angle(synchronized.channel_response)
+    figure, axes = plt.subplots(
+        2,
+        1,
+        figsize=(10.0, 7.4),
+        sharex=True,
+        sharey=True,
+        constrained_layout=True,
+    )
+    raw_map = axes[0].pcolormesh(
+        time_ms,
+        frequency_mhz,
+        raw_phase_rad.T,
+        shading="nearest",
+        cmap="twilight",
+        vmin=-np.pi,
+        vmax=np.pi,
+    )
+    axes[0].set(
+        ylabel="Baseband subcarrier frequency (MHz)",
+        title="Raw channel: absolute delay and full Doppler phase",
+    )
+    axes[1].pcolormesh(
+        time_ms,
+        frequency_mhz,
+        synchronized_phase_rad.T,
+        shading="nearest",
+        cmap="twilight",
+        vmin=-np.pi,
+        vmax=np.pi,
+    )
+    axes[1].set(
+        xlabel="Time from reference event (ms)",
+        ylabel="Baseband subcarrier frequency (MHz)",
+        title="Synchronized channel: residual phase after prediction removal",
+    )
+    figure.colorbar(
+        raw_map,
+        ax=axes,
+        label="Wrapped phase (rad)",
+    )
+    figure.suptitle(
+        "Raw versus phase-synchronized SISO channel "
+        f"({synchronized.prediction_label})"
+    )
+    figure.savefig(path, dpi=170)
+    plt.close(figure)
+
+
 def _combined_legend(primary, secondary, *, location: str) -> None:
     handles_a, labels_a = primary.get_legend_handles_labels()
     handles_b, labels_b = secondary.get_legend_handles_labels()
@@ -298,6 +362,7 @@ def _save_slices(grid: SISOChannelGrid, path: Path) -> None:
 
 def _summary(
     grid: SISOChannelGrid,
+    synchronized: SynchronizedSISOChannelGrid,
     config: ResearchBaselineConfig,
     omm_record: Mapping[str, Any],
     reference_utc: datetime,
@@ -305,6 +370,9 @@ def _summary(
     anchor_offsets_s: np.ndarray,
 ) -> dict[str, Any]:
     magnitude_db = 20.0 * np.log10(np.abs(grid.channel_response))
+    synchronized_magnitude_db = 20.0 * np.log10(
+        np.abs(synchronized.channel_response)
+    )
     return {
         "model": "LOS SISO OFDM time-frequency channel grid",
         "object_name": str(omm_record["OBJECT_NAME"]),
@@ -367,6 +435,41 @@ def _summary(
             "maximum": float(np.max(magnitude_db)),
         },
         "other_losses_db": grid.other_losses_db,
+        "phase_synchronization": {
+            "prediction_label": synchronized.prediction_label,
+            "removed_terms": [
+                "predicted carrier Doppler phase",
+                "predicted absolute propagation-delay phase",
+            ],
+            "retained_terms": [
+                "free-space path amplitude",
+                "other scalar losses",
+                "residual delay and carrier-phase errors",
+            ],
+            "maximum_absolute_residual_delay_s": float(
+                np.max(np.abs(synchronized.residual_propagation_delay_s))
+            ),
+            "maximum_absolute_residual_carrier_phase_rad": float(
+                np.max(
+                    np.abs(
+                        synchronized.residual_carrier_doppler_phase_rad
+                    )
+                )
+            ),
+            "maximum_absolute_residual_total_phase_rad": float(
+                np.max(np.abs(synchronized.residual_total_phase_rad))
+            ),
+            "maximum_magnitude_change_db": float(
+                np.max(np.abs(synchronized_magnitude_db - magnitude_db))
+            ),
+            "formula": (
+                "H_sync=a exp(j(phi_D-phi_D_pred)) "
+                "exp(-j 2 pi f_k (tau-tau_pred))"
+            ),
+            "scope": (
+                "channel-side phase removal; not an OFDM receiver estimator"
+            ),
+        },
         "orbit_state": {
             "reference_model": "CelesTrak OMM / SGP4",
             "anchor_step_s": config.channel_state.geometry_source_step_s,
@@ -448,17 +551,33 @@ def run_channel_grid_simulation(
         axes,
         other_losses_db=other_losses_db,
     )
+    synchronized = synchronize_siso_ofdm_channel_grid(
+        grid,
+        grid.propagation_delay_s,
+        grid.carrier_doppler_phase_rad,
+        prediction_label="perfect_same_state_prediction",
+    )
 
     output_directory.mkdir(parents=True, exist_ok=True)
     artifacts = ChannelGridArtifacts(
         channel_grid_npz=output_directory / "channel_grid.npz",
+        synchronized_channel_grid_npz=(
+            output_directory / "synchronized_channel_grid.npz"
+        ),
         time_axis_csv=output_directory / "time_axis.csv",
         frequency_axis_csv=output_directory / "frequency_axis.csv",
         summary_json=output_directory / "summary.json",
         heatmap_png=output_directory / "channel_grid_heatmap.png",
+        synchronization_comparison_png=(
+            output_directory / "synchronization_comparison.png"
+        ),
         slices_png=output_directory / "channel_grid_slices.png",
     )
     save_siso_channel_grid_npz(grid, artifacts.channel_grid_npz)
+    save_synchronized_siso_channel_grid_npz(
+        synchronized,
+        artifacts.synchronized_channel_grid_npz,
+    )
     _save_axes_csv(
         axes,
         reference,
@@ -469,6 +588,7 @@ def run_channel_grid_simulation(
         json.dumps(
             _summary(
                 grid,
+                synchronized,
                 config,
                 omm_record,
                 reference,
@@ -481,6 +601,10 @@ def run_channel_grid_simulation(
         encoding="utf-8",
     )
     _save_heatmap(grid, artifacts.heatmap_png)
+    _save_synchronization_comparison(
+        synchronized,
+        artifacts.synchronization_comparison_png,
+    )
     _save_slices(grid, artifacts.slices_png)
     return artifacts
 
