@@ -78,6 +78,11 @@ from starlink_isl.si_interface import (
     ideal_downlink_state_si,
     sgp4_downlink_state_si,
 )
+from starlink_isl.state_resampling import (
+    StateResamplingError,
+    compare_downlink_states,
+    resample_downlink_state_si,
+)
 from starlink_isl.satellite_channel import (
     SISOChannelConfig,
     SISOChannelResult,
@@ -111,6 +116,7 @@ __all__ = [
     "SISOChannelConfig",
     "SISOChannelResult",
     "SISOChannelSequenceResult",
+    "StateResamplingError",
     "ecef_to_geodetic",
     "BOLTZMANN_J_K",
     "REFERENCE_NOISE_TEMPERATURE_K",
@@ -120,6 +126,7 @@ __all__ = [
     "compensate_cfo",
     "compensate_siso_channel_doppler",
     "compensate_siso_channel_sequence_doppler",
+    "compare_downlink_states",
     "downlink_dynamics",
     "downlink_geometry",
     "downlink_state_si",
@@ -141,6 +148,7 @@ __all__ = [
     "propagate_teme",
     "qpsk_demodulate",
     "qpsk_modulate",
+    "resample_downlink_state_si",
     "satellite_state",
     "satrec_from_omm",
     "simulate_qpsk_snapshot",

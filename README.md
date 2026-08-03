@@ -58,6 +58,36 @@ B_{\mathrm{occupied}}\approx K_{\mathrm{active}}\Delta f
 확정해야 하며 YAML의 `team_confirmation.fields`에 표시한다. 기존 10 GHz
 ideal·SGP4 산출물은 재현성 보존을 위해 이 설정으로 자동 변경하지 않는다.
 
+## 채널 상태 재표본화
+
+`resample_downlink_state_si`는 1초 간격 SGP4 anchor 상태를 1 ms 등 임의의
+채널 갱신 시각으로 cubic Hermite 보간한다. SGP4를 대체하지 않으며 목표
+시각은 반드시 원본 시간 범위 안에 있어야 한다.
+
+```python
+import numpy as np
+
+from starlink_isl import resample_downlink_state_si
+
+# source는 같은 반송파에서 계산한 1초 간격 DownlinkStateSI
+target_time_s = np.arange(0.0, 2.0 + 0.001, 0.001)
+dense_state = resample_downlink_state_si(
+    source,
+    target_time_s,
+    carrier_frequency_hz=11.7e9,
+    minimum_elevation_rad=np.deg2rad(10.0),
+)
+```
+
+위성 및 지상국 위치는 양 끝의 위치·속도를 함께 사용하는 cubic Hermite로
+보간한다. 보간된 벡터에서 LOS, 경사거리, range rate, 지연 및 Doppler를
+다시 계산하고, 위상은 직접 보간하지 않고 경사거리에서 다시 계산한다.
+
+STARLINK-5285의 최근접점 부근에서 1초 SGP4 anchor를 1 ms로 보간해 같은
+시각의 직접 SGP4 결과와 비교한 회귀 테스트 한계는 위치 2 cm, 속도
+2 cm/s, 경사거리 2 mm, Doppler 0.05 Hz, 위상 0.5 rad이다. 현재 관측된
+최대 Doppler 오차는 약 0.018 Hz이고 위상 오차는 약 0.22 rad이다.
+
 ## CelesTrak 데이터 받기
 
 ```powershell

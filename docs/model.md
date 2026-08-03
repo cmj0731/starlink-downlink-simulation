@@ -588,3 +588,86 @@ T_{\rm OFDM}
 
 정확한 활성 부반송파 배치, pilot, 파형 정규화 및 최종 numerology는 팀
 합의 후 YAML 값만 변경한다. 채널 코드는 이 값들을 하드코딩하지 않는다.
+
+## 18. SGP4 anchor와 cubic Hermite 재표본화
+
+SGP4는 OMM 궤도요소로 임의의 UTC에서 위성 위치와 속도를 직접 계산하는
+기준 궤도 전파 모델이다. Cubic Hermite는 SGP4로 계산한 두 anchor 상태의
+위치와 속도를 이용해 중간 시각을 채우는 수치 보간이며 새로운 궤도 물리를
+추가하지 않는다.
+
+두 anchor 시각을 \(t_i,t_{i+1}\), 위치와 속도를 각각
+\(\mathbf p_i,\mathbf v_i\), \(\mathbf p_{i+1},\mathbf v_{i+1}\)라고 하고
+
+\[
+u=\frac{t-t_i}{t_{i+1}-t_i},\qquad
+\Delta T=t_{i+1}-t_i
+\]
+
+로 두면 위치는
+
+\[
+\mathbf p(t)=
+h_{00}(u)\mathbf p_i
+h_{10}(u)\Delta T\mathbf v_i
+h_{01}(u)\mathbf p_{i+1}
+h_{11}(u)\Delta T\mathbf v_{i+1}
+\]
+
+로 계산한다. Hermite 기저는
+
+\[
+h_{00}=2u^3-3u^2+1,\quad
+h_{10}=u^3-2u^2+u
+\]
+
+\[
+h_{01}=-2u^3+3u^2,\quad
+h_{11}=u^3-u^2
+\]
+
+이다. 속도는 위 위치 다항식을 시간으로 미분해 얻는다. 위성과 UE 벡터를
+각각 보간한 후
+
+\[
+\boldsymbol\rho(t)=\mathbf p_{\rm UE}(t)-\mathbf p_{\rm sat}(t)
+\]
+
+\[
+d(t)=\|\boldsymbol\rho(t)\|,qquad
+\hat{\boldsymbol\rho}(t)=\frac{\boldsymbol\rho(t)}{d(t)}
+\]
+
+\[
+v_r(t)=
+\left(\mathbf v_{\rm UE}(t)-\mathbf v_{\rm sat}(t)\right)
+\mathbin{\cdot}\hat{\boldsymbol\rho}(t)
+\]
+
+를 다시 계산한다. 이로부터
+
+\[
+\tau(t)=\frac{d(t)}{c},\qquad
+f_D(t)=-\frac{v_r(t)}{c}f_{\rm carrier}
+\]
+
+를 얻는다. 큰 누적 위상을 직접 보간하지 않고 기준 거리
+\(d_{\rm ref}\)를 사용해
+
+\[
+\phi_D(t)=-\frac{2\pi f_{\rm carrier}}{c}
+\left[d(t)-d_{\rm ref}\right]
+\]
+
+로 재계산한다. 따라서
+
+\[
+\frac{d\phi_D}{dt}=2\pi f_D(t)
+\]
+
+관계가 유지된다.
+
+재표본화는 anchor 범위 밖으로 외삽하지 않는다. 같은 반송파로 생성된 원본
+상태만 입력할 수 있으며 Doppler와 반송파가 불일치하면 오류를 발생시킨다.
+전체 패스에서는 Hermite를 사용하되 일부 ms 시각을 직접 SGP4로 계산해
+위치·속도·거리·range rate·Doppler·위상 오차를 검증한다.
