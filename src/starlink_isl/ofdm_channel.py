@@ -317,6 +317,9 @@ def predict_block_start_delay_and_doppler_phase(
     carrier_doppler_phase_rad: ArrayLike,
     *,
     block_start_index: int = 0,
+    delay_prediction_bias_s: float = 0.0,
+    doppler_prediction_bias_hz: float = 0.0,
+    initial_carrier_phase_prediction_bias_rad: float = 0.0,
 ) -> tuple[FloatArray, FloatArray]:
     """Predict a block from its initial delay, phase, and constant Doppler.
 
@@ -328,6 +331,7 @@ def predict_block_start_delay_and_doppler_phase(
 
     This zero-order block model represents one geometry/Doppler update per
     block. It does not use later truth samples to update the prediction.
+    Optional biases are defined as ``prediction minus truth`` at block start.
     """
 
     times = np.asarray(time_s, dtype=np.float64)
@@ -361,15 +365,30 @@ def predict_block_start_delay_and_doppler_phase(
     start = int(block_start_index)
     if not 0 <= start < times.size:
         raise ValueError("block_start_index is outside the time axis")
+    delay_bias_s = float(delay_prediction_bias_s)
+    doppler_bias_hz = float(doppler_prediction_bias_hz)
+    phase_bias_rad = float(initial_carrier_phase_prediction_bias_rad)
+    if not all(
+        np.isfinite(value)
+        for value in (delay_bias_s, doppler_bias_hz, phase_bias_rad)
+    ):
+        raise ValueError("prediction biases must be finite")
+    predicted_start_delay_s = delay_s[start] + delay_bias_s
+    if predicted_start_delay_s <= 0.0:
+        raise ValueError("biased block-start delay must be positive")
 
     predicted_delay_s = np.full(
         times.shape,
-        delay_s[start],
+        predicted_start_delay_s,
         dtype=np.float64,
     )
     predicted_carrier_phase_rad = (
         carrier_phase_rad[start]
-        + 2.0 * np.pi * doppler_hz[start] * (times - times[start])
+        + phase_bias_rad
+        + 2.0
+        * np.pi
+        * (doppler_hz[start] + doppler_bias_hz)
+        * (times - times[start])
     )
     return (
         _read_only(predicted_delay_s),
@@ -383,6 +402,9 @@ def synchronize_siso_ofdm_channel_grid_from_block_start(
     grid: SISOChannelGrid,
     *,
     block_start_index: int = 0,
+    delay_prediction_bias_s: float = 0.0,
+    doppler_prediction_bias_hz: float = 0.0,
+    initial_carrier_phase_prediction_bias_rad: float = 0.0,
     prediction_label: str = "block_start_held_delay_constant_doppler",
 ) -> SynchronizedSISOChannelGrid:
     """Remove a prediction formed only from one block-start channel state."""
@@ -394,6 +416,11 @@ def synchronize_siso_ofdm_channel_grid_from_block_start(
             grid.doppler_shift_hz,
             grid.carrier_doppler_phase_rad,
             block_start_index=block_start_index,
+            delay_prediction_bias_s=delay_prediction_bias_s,
+            doppler_prediction_bias_hz=doppler_prediction_bias_hz,
+            initial_carrier_phase_prediction_bias_rad=(
+                initial_carrier_phase_prediction_bias_rad
+            ),
         )
     )
     return synchronize_siso_ofdm_channel_grid(

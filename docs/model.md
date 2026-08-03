@@ -869,6 +869,64 @@ carrier phase 예측 오차가 작다. 대신 큰 radial velocity 때문에 고�
 delay 변화가 거의 없지만 Doppler 변화율이 커서 잔류 CFO와 carrier phase가
 상대적으로 더 크게 나타난다.
 
+### 19.5 위치·속도·시각·Doppler 예측 오차
+
+`starlink-channel-errors`는 현재 256심벌 블록에서 다음 네 오차를 독립적으로
+변화시킨다.
+
+| 오차 | 기본 sweep | 의미 |
+|---|---|---|
+| LOS range | -10, -1, -0.1, 0, 0.1, 1, 10 m | 예측 거리 - 실제 거리 |
+| LOS radial velocity | -10, -1, -0.1, 0, 0.1, 1, 10 m/s | 예측 radial velocity - 실제값 |
+| State timestamp | -1, -0.1, -0.01, 0, 0.01, 0.1, 1 ms | \(t_0+\Delta t\) 상태를 \(t_0\)에 사용 |
+| Doppler frequency | -1200, -600, -120, 0, 120, 600, 1200 Hz | 예측 Doppler - 실제 Doppler |
+
+LOS 거리 오차 \(\Delta R\)는
+
+\[
+\Delta\hat\tau=\frac{\Delta R}{c},\qquad
+\Delta\hat\phi_0=-\frac{2\pi f_c\Delta R}{c}
+\]
+
+로 delay와 초기 carrier phase 예측에 함께 반영한다. LOS radial velocity 오차
+\(\Delta v_r\)는
+
+\[
+\Delta\hat f_D=-\frac{f_c}{c}\Delta v_r
+\]
+
+로 변환한다. 직접 Doppler 오차는 주파수 예측값에 그대로 더하며 정규화 CFO는
+
+\[
+\epsilon_{\rm residual}
+=\frac{f_D-\hat f_D}{\Delta f_{\rm sub}}
+\]
+
+이다. 모든 prediction bias는 `예측값 - 실제값`, residual은 `실제값 - 예측값`
+부호를 사용한다.
+
+11.7 GHz에서 대표적인 변환 결과는 다음과 같다.
+
+- LOS 거리 오차 1 m는 delay bias 3.336 ns와 carrier phase prediction bias
+  약 -39.027 cycles에 해당한다.
+- LOS radial velocity 오차 1 m/s는 Doppler prediction bias 약 -39.027 Hz,
+  120 kHz SCS 기준 normalized bias 약 -0.000325에 해당한다.
+- 직접 Doppler 오차 120 Hz는 normalized bias 0.001이며, 같은 Doppler 오차는
+  radial velocity 오차 약 -3.075 m/s에 해당한다.
+- 상태 시각 오차 0.1 ms는 가시 경계에서 약 26 cycles의 초기 carrier phase
+  bias를 만들지만 최근접에서는 그 영향이 매우 작다.
+
+거리 오차가 만드는 수십 cycle의 carrier phase는 unwrapped 물리 위상이다.
+수신기가 pilot으로 common phase를 다시 획득하면 이 공통 성분은 제거될 수
+있고, 그 후에는 `maximum_absolute_residual_delay_phase_cycles`가 나타내는
+주파수별 phase slope가 남는다. 예를 들어 최근접에서 LOS 거리 오차 1 m의
+band-edge delay phase는 약 0.0448 cycle이다. 따라서 summary와 CSV에는
+carrier, delay, total, wrapped phase를 분리해 기록한다.
+
+이 sweep은 OFDM detector나 BER을 포함하지 않으므로 어떤 오차가 허용 가능한지
+아직 판정하지 않는다. 이후 OFDM 결합에서 목표 BER·EVM과 연결해 허용 오차를
+결정해야 한다.
+
 ## 20. SGP4 anchor와 cubic Hermite 재표본화
 
 SGP4는 OMM 궤도요소로 임의의 UTC에서 위성 위치와 속도를 직접 계산하는

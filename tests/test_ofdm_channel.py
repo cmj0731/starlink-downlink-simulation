@@ -252,6 +252,38 @@ def test_block_start_prediction_rejects_invalid_reference_index():
         )
 
 
+def test_block_start_prediction_applies_prediction_minus_truth_biases():
+    time_s = np.array([0.0, 0.25, 0.5])
+    delay_s = np.array([2.0e-3, 2.1e-3, 2.2e-3])
+    doppler_hz = np.array([20.0, 21.0, 22.0])
+    phase_rad = np.array([0.5, 1.0, 2.0])
+    delay_bias_s = 12.0e-9
+    doppler_bias_hz = -3.0
+    phase_bias_rad = 0.2
+
+    predicted_delay_s, predicted_phase_rad = (
+        predict_block_start_delay_and_doppler_phase(
+            time_s,
+            delay_s,
+            doppler_hz,
+            phase_rad,
+            delay_prediction_bias_s=delay_bias_s,
+            doppler_prediction_bias_hz=doppler_bias_hz,
+            initial_carrier_phase_prediction_bias_rad=phase_bias_rad,
+        )
+    )
+
+    assert predicted_delay_s == pytest.approx(delay_s[0] + delay_bias_s)
+    assert predicted_phase_rad == pytest.approx(
+        phase_rad[0]
+        + phase_bias_rad
+        + 2.0
+        * np.pi
+        * (doppler_hz[0] + doppler_bias_hz)
+        * time_s
+    )
+
+
 def test_synchronization_rejects_prediction_with_wrong_shape(baseline):
     grid = _ideal_grid(baseline)
 

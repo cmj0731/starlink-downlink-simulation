@@ -262,6 +262,38 @@ python -m starlink_isl.channel_block_simulate
 길게 만들 때 하나의 고정 채널 벡터로 근사할 수 있는지를 확인하는 채널 측
 분석이며, OFDM 송수신기나 pilot 추정기를 아직 결합하지 않는다.
 
+## 채널 예측 오차 sweep
+
+현재 256심벌 블록에서 LOS 거리, radial velocity, 상태 timestamp 및 직접
+Doppler 예측 오차를 한 번에 하나씩 바꾸려면 다음 명령을 사용한다.
+
+```powershell
+starlink-channel-errors
+```
+
+또는 다음처럼 실행한다.
+
+```powershell
+python -m starlink_isl.channel_prediction_error_simulate
+```
+
+기본 출력은 `outputs/channel_prediction_errors`이다.
+
+| 파일 | 내용 |
+|---|---|
+| `prediction_error_metrics.csv` | 세 이벤트와 네 오차 종류의 잔류 delay·CFO·phase |
+| `prediction_error_summary.json` | sweep 값, 부호 규약, 변환식과 해석 제한 |
+| `prediction_error_residual_cfo.png` | 오차별 최대 잔류 CFO 비교 |
+| `prediction_error_residual_phase.png` | 오차별 최대 unwrapped 잔류 phase 비교 |
+
+모든 bias는 `예측값 - 실제값`, 잔류값은 `실제값 - 예측값`으로 정의한다.
+위치 오차는 안테나 pointing 오차가 아니라 LOS 방향으로 투영된 거리 오차이다.
+각 sweep은 한 종류의 오차만 변화시키며 나머지 입력은 블록 시작의 실제값을
+사용한다. 결과에는 common carrier phase, baseband delay phase 및 wrapped phase
+지표를 따로 저장하므로 pilot으로 공통 위상을 다시 추정하는 경우와 구분할 수
+있다. 이 단계에서는 BER 합격 기준을 정하지 않고 OFDM 결합에 전달할 물리적
+잔류 CFO와 phase만 계산한다.
+
 ## 채널 상태 재표본화
 
 `resample_downlink_state_si`는 1초 간격 SGP4 anchor 상태를 1 ms 등 임의의
