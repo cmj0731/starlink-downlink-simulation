@@ -56,6 +56,11 @@ def test_channel_grid_simulation_writes_viewable_artifacts(tmp_path):
     assert shifted_endpoints == [16, 239]
     summary = json.loads(artifacts.summary_json.read_text(encoding="utf-8"))
     assert summary["shape"] == [16, 223]
+    assert summary["heatmap_axis_convention"] == {
+        "x": "time_from_reference_event_ms",
+        "y": "baseband_subcarrier_frequency_mhz",
+        "displayed_values": "transpose of H[m,k] for visualization only",
+    }
     assert summary["waveform_bin_order"] == "fftshifted"
     assert summary["norad_catalog_id"] == 55296
     assert summary["scope_limitations"][1].startswith("within-symbol Doppler")

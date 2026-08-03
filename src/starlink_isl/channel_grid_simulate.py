@@ -174,9 +174,9 @@ def _save_heatmap(grid: SISOChannelGrid, path: Path) -> None:
         constrained_layout=True,
     )
     magnitude_map = axes[0].pcolormesh(
-        frequency_mhz,
         time_ms,
-        magnitude_db,
+        frequency_mhz,
+        magnitude_db.T,
         shading="nearest",
         cmap="viridis",
     )
@@ -188,13 +188,13 @@ def _save_heatmap(grid: SISOChannelGrid, path: Path) -> None:
     magnitude_colorbar.formatter.set_useOffset(False)
     magnitude_colorbar.update_ticks()
     axes[0].set(
-        ylabel="Time from reference event (ms)",
+        ylabel="Baseband subcarrier frequency (MHz)",
         title="SISO OFDM channel magnitude",
     )
     phase_map = axes[1].pcolormesh(
-        frequency_mhz,
         time_ms,
-        phase_rad,
+        frequency_mhz,
+        phase_rad.T,
         shading="nearest",
         cmap="twilight",
         vmin=-np.pi,
@@ -202,12 +202,12 @@ def _save_heatmap(grid: SISOChannelGrid, path: Path) -> None:
     )
     figure.colorbar(phase_map, ax=axes[1], label="Wrapped phase (rad)")
     axes[1].set(
-        xlabel="Baseband subcarrier frequency (MHz)",
-        ylabel="Time from reference event (ms)",
+        xlabel="Time from reference event (ms)",
+        ylabel="Baseband subcarrier frequency (MHz)",
         title="SISO OFDM channel phase",
     )
     figure.suptitle(
-        "Frame-sized H[m,k]: FSPL, carrier Doppler phase, and delay phase"
+        "Time-frequency view of H[m,k]: x=time, y=frequency"
     )
     figure.savefig(path, dpi=170)
     plt.close(figure)
@@ -317,6 +317,11 @@ def _summary(
         ),
         "shape_convention": ["ofdm_symbol", "active_subcarrier"],
         "shape": list(grid.shape),
+        "heatmap_axis_convention": {
+            "x": "time_from_reference_event_ms",
+            "y": "baseband_subcarrier_frequency_mhz",
+            "displayed_values": "transpose of H[m,k] for visualization only",
+        },
         "carrier_frequency_hz": grid.axes.frequency.carrier_frequency_hz,
         "subcarrier_spacing_hz": (
             grid.axes.frequency.subcarrier_spacing_hz

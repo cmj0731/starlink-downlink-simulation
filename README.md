@@ -135,7 +135,7 @@ python -m starlink_isl.channel_grid_simulate
 | `time_axis.csv` | 심벌 번호, 시작 시각, 채널 평가 시각 및 UTC |
 | `frequency_axis.csv` | signed index, 자연/shifted FFT bin, baseband/RF 주파수 |
 | `summary.json` | 모델 범위, grid 크기 및 물리량 최솟값·최댓값 |
-| `channel_grid_heatmap.png` | `H[m,k]` 크기와 wrapped phase heatmap |
+| `channel_grid_heatmap.png` | x축 시간, y축 주파수인 `H[m,k]` 크기·위상 heatmap |
 | `channel_grid_slices.png` | 특정 시각·부반송파의 주파수/시간 단면 |
 
 채널식은 다음과 같다.
@@ -153,6 +153,11 @@ Doppler가 심벌 안에서 만드는 ICI는 포함하지 않으며 시간영역
 ICI 연산자가 필요하다. 또한 절대 지연을 주파수 위상으로 기록한 것이므로,
 실제 FFT 심벌에 적용하기 전에는 수신기 timing alignment 기준과 맞춰야 한다.
 CP가 수 ms 절대 전파 지연을 대신 보상하는 것은 아니다.
+
+내부 배열은 계산을 위해 `(time, frequency)` 순서인 `H[m,k]`로 저장한다.
+Heatmap은 일반적인 시간-주파수 표처럼 x축을 시간, y축을 주파수로 두기
+위해 표시할 때만 배열을 전치한다. 저장된 `channel_response` 자체는 바뀌지
+않는다.
 
 ## 채널 상태 재표본화
 
