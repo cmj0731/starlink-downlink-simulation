@@ -219,6 +219,35 @@ raw Doppler는 심벌당 한 번 표본화한 wrapped phase 그림에서 alias�
 `--magnitude-step-s`로 바꿀 수 있다. 이 간격은 저장량을 줄이기 위한 시각화
 표본 간격이며, OFDM 심벌 간격이나 실제 채널 grid의 시간축을 변경하지 않는다.
 
+## OFDM 블록 길이별 채널 변화
+
+가시 시작, 최근접, 가시 종료에서 1 ms, 현재 256심벌, 5 ms, 10 ms 블록을
+비교하려면 다음 명령을 사용한다.
+
+```powershell
+starlink-channel-blocks
+```
+
+설치된 command가 갱신되지 않은 환경에서는 모듈로 실행할 수 있다.
+
+```powershell
+python -m starlink_isl.channel_block_simulate
+```
+
+기본 출력은 `outputs/channel_blocks`이다.
+
+| 파일 | 내용 |
+|---|---|
+| `block_metrics.csv` | 이벤트·블록 길이별 거리, delay, Doppler, magnitude, 위상, 채널 상관도 |
+| `block_summary.json` | 시간축 정의, 전체 지표와 해석 제한 |
+| `block_length_comparison.png` | 네 블록 길이에서 세 이벤트의 변화량 비교 |
+
+블록 길이는 실제 신호 구간인 `N * T_OFDM`, 채널 표본의 첫 시각과 마지막
+시각 사이는 `(N-1) * T_OFDM`으로 구분한다. 따라서 현재 256심벌 블록은
+명목상 2.133333 ms이고 채널 평가 span은 2.125 ms이다. 이 분석은 블록을
+길게 만들 때 하나의 고정 채널 벡터로 근사할 수 있는지를 확인하는 채널 측
+분석이며, OFDM 송수신기나 pilot 추정기를 아직 결합하지 않는다.
+
 ## 채널 상태 재표본화
 
 `resample_downlink_state_si`는 1초 간격 SGP4 anchor 상태를 1 ms 등 임의의
