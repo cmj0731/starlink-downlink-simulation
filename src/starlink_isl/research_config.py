@@ -50,6 +50,27 @@ def _int_value(mapping: Mapping[str, Any], key: str, prefix: str) -> int:
     return int(value)
 
 
+def _int_tuple(
+    mapping: Mapping[str, Any],
+    key: str,
+    prefix: str,
+) -> tuple[int, ...]:
+    values = _required(mapping, key, prefix)
+    if not isinstance(values, Sequence) or isinstance(values, (str, bytes)):
+        raise TypeError(f"{prefix}.{key} must be a sequence")
+    converted: list[int] = []
+    for index, value in enumerate(values):
+        if isinstance(value, (bool, np.bool_)) or not isinstance(
+            value,
+            (int, np.integer),
+        ):
+            raise TypeError(f"{prefix}.{key}[{index}] must be an integer")
+        converted.append(int(value))
+    if not converted:
+        raise ValueError(f"{prefix}.{key} must not be empty")
+    return tuple(converted)
+
+
 def _bool_value(mapping: Mapping[str, Any], key: str, prefix: str) -> bool:
     value = _required(mapping, key, prefix)
     if not isinstance(value, (bool, np.bool_)):
@@ -183,6 +204,73 @@ class OFDMNumerology:
 
 
 @dataclass(frozen=True, slots=True)
+class OFDMPilotLayout:
+    """Frequency-domain pilot contract shared with the OFDM transmitter."""
+
+    placement: str
+    spacing_active_subcarriers: int
+    fftshift_bin_indices: tuple[int, ...]
+
+    def validate_for(self, numerology: OFDMNumerology) -> None:
+        if self.placement != "frequency_comb":
+            raise ValueError("ofdm.pilot.placement must be frequency_comb")
+        if self.spacing_active_subcarriers <= 0:
+            raise ValueError(
+                "ofdm.pilot.spacing_active_subcarriers must be positive"
+            )
+        indices = np.asarray(self.fftshift_bin_indices, dtype=np.int64)
+        if indices.size < 2:
+            raise ValueError("ofdm.pilot requires at least two subcarriers")
+        if np.any(np.diff(indices) <= 0):
+            raise ValueError(
+                "ofdm.pilot.fftshift_bin_indices must be strictly increasing"
+            )
+        if indices[0] < 0 or indices[-1] >= numerology.fft_size:
+            raise ValueError(
+                "ofdm.pilot.fftshift_bin_indices exceed the FFT grid"
+            )
+        if numerology.dc_subcarrier_null and np.any(
+            indices == numerology.fft_size // 2
+        ):
+            raise ValueError("ofdm.pilot must not use the null DC bin")
+        if len(indices) >= numerology.active_subcarrier_count:
+            raise ValueError("ofdm.pilot must leave at least one data subcarrier")
+
+        if (
+            numerology.active_subcarrier_layout
+            == "minyoung_fftshift_guard16_dc_null"
+        ):
+            active_bins = np.concatenate(
+                (
+                    np.arange(16, 128, dtype=np.int64),
+                    np.arange(129, 240, dtype=np.int64),
+                )
+            )
+            active_positions = np.searchsorted(active_bins, indices)
+            if np.any(active_positions >= active_bins.size) or not np.array_equal(
+                active_bins[active_positions], indices
+            ):
+                raise ValueError("ofdm.pilot uses a guard or inactive bin")
+            if active_positions[0] != 0 or active_positions[-1] != (
+                active_bins.size - 1
+            ):
+                raise ValueError(
+                    "ofdm.pilot must anchor both active-band edges"
+                )
+            position_steps = np.diff(active_positions)
+            if not np.all(
+                position_steps[:-1] == self.spacing_active_subcarriers
+            ) or not 0 < position_steps[-1] <= self.spacing_active_subcarriers:
+                raise ValueError(
+                    "ofdm.pilot indices do not match the configured spacing"
+                )
+
+    @property
+    def pilot_subcarrier_count(self) -> int:
+        return len(self.fftshift_bin_indices)
+
+
+@dataclass(frozen=True, slots=True)
 class ChannelStateSampling:
     """Orbit-state source and time-varying channel update assumptions."""
 
@@ -305,6 +393,7 @@ class ResearchBaselineConfig:
     scenario: ScenarioMetadata
     radio: RadioBaseline
     ofdm: OFDMNumerology
+    pilot: OFDMPilotLayout
     channel_state: ChannelStateSampling
     channel_grid: ChannelGridBaseline
     receiver_filter: ReceiverFilterBaseline
@@ -314,6 +403,7 @@ class ResearchBaselineConfig:
     def __post_init__(self) -> None:
         if self.schema_version != 1:
             raise ValueError("unsupported research-config schema_version")
+        self.pilot.validate_for(self.ofdm)
         self.receiver_filter.validate_for(self.ofdm)
         self.experiments.validate_for(self.ofdm)
 
@@ -345,6 +435,7 @@ def load_research_baseline(path: str | Path) -> ResearchBaselineConfig:
     scenario = _mapping(raw, "scenario")
     radio = _mapping(raw, "radio")
     ofdm = _mapping(raw, "ofdm")
+    pilot = _mapping(ofdm, "pilot")
     channel = _mapping(raw, "channel_state")
     channel_grid = _mapping(raw, "channel_grid")
     receiver_filter = _mapping(raw, "receiver_filter")
@@ -410,6 +501,19 @@ def load_research_baseline(path: str | Path) -> ResearchBaselineConfig:
                 ofdm,
                 "active_subcarrier_layout",
                 "ofdm",
+            ),
+        ),
+        pilot=OFDMPilotLayout(
+            placement=_str_value(pilot, "placement", "ofdm.pilot"),
+            spacing_active_subcarriers=_int_value(
+                pilot,
+                "spacing_active_subcarriers",
+                "ofdm.pilot",
+            ),
+            fftshift_bin_indices=_int_tuple(
+                pilot,
+                "fftshift_bin_indices",
+                "ofdm.pilot",
             ),
         ),
         channel_state=ChannelStateSampling(
@@ -513,6 +617,14 @@ def main() -> None:
             config.scenario.represents_actual_starlink_waveform
         ),
         "derived": config.derived_values(),
+        "pilot": {
+            "placement": config.pilot.placement,
+            "spacing_active_subcarriers": (
+                config.pilot.spacing_active_subcarriers
+            ),
+            "pilot_subcarrier_count": config.pilot.pilot_subcarrier_count,
+            "fftshift_bin_indices": config.pilot.fftshift_bin_indices,
+        },
         "channel_grid": {
             "time_axis": config.channel_grid.time_axis,
             "symbol_time_reference": (

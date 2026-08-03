@@ -586,7 +586,7 @@ T_{\rm OFDM}
 - 채널 갱신 간격이 원본 기하 상태 간격보다 긴 경우
 - 실험 spacing 후보에 baseline spacing이 없는 경우
 
-NFFT, spacing, no-CP 및 활성 부반송파 배치는 팀 송수신기에 맞췄다. pilot,
+NFFT, spacing, no-CP, 활성 부반송파 및 pilot 배치는 팀 송수신기에 맞췄다.
 파형 정규화와 심벌 평가 기준은 최종 통합 전에 확인한다.
 
 ## 18. OFDM 채널 grid의 시간·주파수 축
@@ -612,6 +612,16 @@ k\in\{-112,\ldots,-1,1,\ldots,111\}
 128번 DC를 비운 결과다. 자연 FFT 배열 접근용 index `k mod N_FFT`와
 shifted 배열 접근용 `fftshift_bin_indices`를 모두 제공한다. 예를 들어
 signed index `-112`는 자연 FFT bin 144, shifted bin 16에 해당한다.
+
+주파수 comb pilot은 활성 부반송파 순서에서 간격 16으로 두고 양쪽 활성대역
+끝을 포함한다. `fftshift` bin 기준 위치는
+
+\[
+\{16,32,48,64,80,96,112,129,145,161,177,193,209,225,239\}
+\]
+
+이며 pilot 15개를 제외한 데이터 부반송파는 208개다. DC bin 128은 pilot과
+데이터 모두 사용하지 않는다.
 
 한 심벌을 대표하는 채널 시각은 기본적으로 CP가 끝난 뒤 유효 FFT 구간의
 중앙으로 정의한다.

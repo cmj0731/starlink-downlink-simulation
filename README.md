@@ -55,9 +55,11 @@ B_{\mathrm{occupied}}\approx K_{\mathrm{active}}\Delta f
 | 상태 재표본화 | cubic Hermite, 직접 SGP4로 검증 완료 |
 | 채널 grid 시간 기준 | OFDM FFT 구간 중앙 |
 | 부반송파 인덱스 | signed FFT index, 파형 배열은 `fftshift` 순서 |
+| 파일럿 배치 | 주파수 comb, 활성 부반송파 기준 간격 16 |
+| 파일럿/데이터 부반송파 | 15 / 208 |
 
-NFFT, spacing, no-CP 및 활성 부반송파 배치는 민영 님의 송수신기와 맞췄다.
-심벌 평가 기준, pilot 위치 및 파형 정규화는 최종 통합 전에 확인하며 YAML의
+NFFT, spacing, no-CP, 활성 부반송파와 pilot 배치는 민영 님의 송수신기와
+맞췄다. 심벌 평가 기준과 파형 정규화는 최종 통합 전에 확인하며 YAML의
 `team_confirmation.fields`에 표시한다. 기존 10 GHz
 ideal·SGP4 산출물은 재현성 보존을 위해 이 설정으로 자동 변경하지 않는다.
 
@@ -86,6 +88,11 @@ assert axes.shape == (8, 223)
 비운다. 물리 주파수 기준으로는 `[-112, ..., -1, 1, ..., 111]`이며,
 자연 FFT 순서의 `fft_bin_indices`와 shifted 파형 배열용
 `fftshift_bin_indices`를 모두 제공한다.
+
+주파수 comb pilot은 `fftshift` bin
+`[16, 32, 48, 64, 80, 96, 112, 129, 145, 161, 177, 193, 209, 225, 239]`
+에 둔다. 활성 부반송파 순서로 16개 간격이며 마지막 239번 bin은 고주파
+활성대역 끝을 포함하기 위한 edge anchor이다.
 
 \[
 f_k=k\Delta f,\qquad f_{\mathrm{RF},k}=f_{\mathrm{carrier}}+f_k

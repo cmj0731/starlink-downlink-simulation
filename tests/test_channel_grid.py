@@ -120,6 +120,34 @@ def test_combined_grid_shape_is_symbol_by_active_subcarrier(baseline):
     assert axes.frequency.subcarrier_count == 223
 
 
+def test_pilot_bins_map_to_expected_channel_grid_columns(baseline):
+    axis = build_ofdm_frequency_axis(
+        baseline.ofdm,
+        baseline.radio.carrier_frequency_hz,
+    )
+    pilot_bins = np.asarray(baseline.pilot.fftshift_bin_indices)
+    grid_columns = np.searchsorted(axis.fftshift_bin_indices, pilot_bins)
+
+    assert axis.fftshift_bin_indices[grid_columns].tolist() == pilot_bins.tolist()
+    assert grid_columns.tolist() == [
+        0,
+        16,
+        32,
+        48,
+        64,
+        80,
+        96,
+        112,
+        128,
+        144,
+        160,
+        176,
+        192,
+        208,
+        222,
+    ]
+
+
 def test_explicit_signed_indices_override_named_layout(baseline):
     explicit = fftshift_guard_active_subcarrier_indices(
         baseline.ofdm.fft_size,

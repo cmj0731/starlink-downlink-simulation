@@ -20,6 +20,25 @@ ofdm:
   modulation: QPSK
   dc_subcarrier_null: true
   active_subcarrier_layout: minyoung_fftshift_guard16_dc_null
+  pilot:
+    placement: frequency_comb
+    spacing_active_subcarriers: 16
+    fftshift_bin_indices:
+      - 16
+      - 32
+      - 48
+      - 64
+      - 80
+      - 96
+      - 112
+      - 129
+      - 145
+      - 161
+      - 177
+      - 193
+      - 209
+      - 225
+      - 239
 
 channel_grid:
   time_axis: ofdm_symbol
@@ -63,5 +82,4 @@ team_confirmation:
   required_before_final_integration: true
   fields:
     - channel_grid.symbol_time_reference
-    - ofdm.pilot_layout
     - ofdm.waveform_normalization

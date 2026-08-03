@@ -50,6 +50,31 @@ def test_provisional_baseline_loads_with_expected_derived_numerology():
         config.ofdm.active_subcarrier_layout
         == "minyoung_fftshift_guard16_dc_null"
     )
+    assert config.pilot.placement == "frequency_comb"
+    assert config.pilot.spacing_active_subcarriers == 16
+    assert config.pilot.pilot_subcarrier_count == 15
+    assert config.pilot.fftshift_bin_indices == (
+        16,
+        32,
+        48,
+        64,
+        80,
+        96,
+        112,
+        129,
+        145,
+        161,
+        177,
+        193,
+        209,
+        225,
+        239,
+    )
+    assert (
+        config.ofdm.active_subcarrier_count
+        - config.pilot.pilot_subcarrier_count
+        == 208
+    )
 
 
 def test_baseline_separates_geometry_source_and_channel_update_intervals():
@@ -100,7 +125,24 @@ def test_baseline_marks_fields_requiring_team_confirmation():
     assert "channel_grid.symbol_time_reference" in (
         config.team_confirmation.fields
     )
-    assert "ofdm.pilot_layout" in config.team_confirmation.fields
+    assert "ofdm.pilot_layout" not in config.team_confirmation.fields
+    assert "ofdm.waveform_normalization" in config.team_confirmation.fields
+
+
+def test_config_rejects_pilot_on_null_dc_bin(tmp_path):
+    mapping = _baseline_mapping()
+    mapping["ofdm"]["pilot"]["fftshift_bin_indices"][7] = 128
+
+    with pytest.raises(ValueError, match="null DC"):
+        load_research_baseline(_write_config(tmp_path, mapping))
+
+
+def test_config_rejects_pilot_layout_inconsistent_with_spacing(tmp_path):
+    mapping = _baseline_mapping()
+    mapping["ofdm"]["pilot"]["fftshift_bin_indices"][8] = 146
+
+    with pytest.raises(ValueError, match="configured spacing"):
+        load_research_baseline(_write_config(tmp_path, mapping))
 
 
 def test_config_rejects_more_active_subcarriers_than_available(tmp_path):
