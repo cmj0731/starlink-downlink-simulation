@@ -21,7 +21,11 @@ from starlink_isl.channel_grid import (
     build_ofdm_channel_grid_axes,
     build_ofdm_time_axis,
 )
-from starlink_isl.channel_io import save_channel_grid_csv
+from starlink_isl.channel_io import (
+    MAX_CHANNEL_CSV_CELLS,
+    save_channel_grid_csv,
+    validate_channel_csv_size,
+)
 from starlink_isl.ofdm_channel import (
     SISOChannelGrid,
     SynchronizedSISOChannelGrid,
@@ -509,6 +513,7 @@ def _summary(
                 "channel_variant": "raw",
                 "delay_compensation": "none",
                 "doppler_compensation": "none",
+                "maximum_allowed_cells": MAX_CHANNEL_CSV_CELLS,
             },
             "synchronized_channel_grid.npz": {
                 "channel_variant": "perfectly_compensated",
@@ -660,6 +665,11 @@ def run_channel_grid_simulation(
         -90.0 <= minimum_elevation_deg <= 90.0
     ):
         raise ValueError("minimum_elevation_deg must be in [-90, 90]")
+    if export_channel_csv:
+        validate_channel_csv_size(
+            symbol_count,
+            config.ofdm.active_subcarrier_count,
+        )
 
     if source_state is not None and omm_record is not None:
         raise ValueError("provide either omm_record or source_state, not both")

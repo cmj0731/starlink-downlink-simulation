@@ -11,7 +11,11 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from starlink_isl.channel_io import CHANNEL_CSV_SCHEMA_VERSION
+from starlink_isl.channel_io import (
+    CHANNEL_CSV_SCHEMA_VERSION,
+    MAX_CHANNEL_CSV_CELLS,
+)
+from starlink_isl.channel_state_io import CHANNEL_STATE_CSV_SCHEMA_VERSION
 from starlink_isl.channel_grid import build_ofdm_frequency_axis
 from starlink_isl.research_config import (
     DEFAULT_BASELINE_PATH,
@@ -173,7 +177,17 @@ def build_team_interface_manifest(
                 "portable": "channel_grid.csv",
                 "portable_schema_version": CHANNEL_CSV_SCHEMA_VERSION,
                 "portable_layout": "time-major long format",
+                "portable_scope": "short OFDM frames only",
+                "portable_maximum_cells": MAX_CHANNEL_CSV_CELLS,
                 "complex_encoding": ["h_real", "h_imag"],
+                "compact_full_pass": "channel_state.csv",
+                "compact_full_pass_schema_version": (
+                    CHANNEL_STATE_CSV_SCHEMA_VERSION
+                ),
+                "compact_full_pass_frequency_axis_repeated": False,
+                "large_grid_policy": (
+                    "use NPZ, same-process arrays, or block processing"
+                ),
             },
         },
         "external_state_vector_input": {

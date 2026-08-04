@@ -148,6 +148,15 @@ Doppler를 다시 계산하며, 제공된 Doppler를 별도 truth로 간주하�
 baseband/RF 주파수도 같은 행에 포함한다. CSV를 wide matrix로 임의 변환하여
 주파수 열 순서를 잃지 않는다.
 
+`channel_grid.csv`는 짧은 OFDM 프레임 전용이며 시간×주파수 셀 수를
+1,000,000개 이하로 제한한다. 큰 grid는 `--no-channel-csv`로 CSV를 끄고
+NPZ, 같은 프로세스의 `channel_response` 배열, 또는 블록 처리를 사용한다.
+전체 가시 패스 교환에는 `outputs/channel_events/channel_state.csv`를 사용한다.
+이 파일은 각 시각의 raw ECEF 위치·속도, LOS, 거리, 지연, Doppler, 누적 위상,
+경로 이득, WGS-84 지상국 메타데이터만 한 번 기록하며 주파수축을 반복하지 않는다.
+수신 모듈은 필요한 짧은 프레임의 시간축과 부반송파축에 대해서만 `H[m,k]`를
+생성한다.
+
 CSV schema v2에서 `channel_variant`, `delay_compensation`,
 `doppler_compensation`은 파일 전체에서 하나의 값이어야 한다. 현재 CSV는
 `raw/none/none`이며, 보상 채널로 해석하거나 다시 이름만 바꾸지 않는다.
@@ -172,6 +181,7 @@ starlink-team-interface
 - `outputs/team_interface/frequency_mapping.csv`
 - `outputs/channel_grid/channel_grid.npz`
 - `outputs/channel_grid/channel_grid.csv`
+- `outputs/channel_events/channel_state.csv`
 - `outputs/channel_grid/time_axis.csv`
 - `outputs/channel_grid/frequency_axis.csv`
 

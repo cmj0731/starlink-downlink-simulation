@@ -8,6 +8,7 @@ import pandas as pd
 
 from starlink_isl import GroundStation, load_research_baseline
 from starlink_isl.channel_grid_simulate import run_channel_grid_simulation
+from starlink_isl.channel_io import MAX_CHANNEL_CSV_CELLS
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -90,6 +91,7 @@ def test_channel_grid_simulation_writes_viewable_artifacts(tmp_path):
         "channel_variant": "raw",
         "delay_compensation": "none",
         "doppler_compensation": "none",
+        "maximum_allowed_cells": MAX_CHANNEL_CSV_CELLS,
     }
     synchronization = summary["phase_synchronization"]
     assert synchronization["prediction_label"] == (

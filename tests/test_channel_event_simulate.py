@@ -11,6 +11,7 @@ from starlink_isl.channel_event_simulate import (
     EVENT_ORDER,
     run_channel_event_comparison,
 )
+from starlink_isl.channel_state_io import load_channel_state_csv
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -121,6 +122,12 @@ def test_three_event_channel_comparison_writes_ordered_metrics(tmp_path):
         "event",
     ]
     assert set(event_rows) == set(EVENT_ORDER)
+    compact_state = load_channel_state_csv(artifacts.channel_state_csv)
+    assert compact_state.sample_count == len(magnitude_frame)
+    assert set(compact_state.event_labels) >= set(EVENT_ORDER)
+    assert magnitude_summary["compact_channel_state"][
+        "frequency_axis_repeated"
+    ] is False
     with np.load(artifacts.magnitude_evolution_npz, allow_pickle=False) as saved:
         magnitude = saved["channel_magnitude_db"]
         time_s = saved["time_from_closest_approach_s"]

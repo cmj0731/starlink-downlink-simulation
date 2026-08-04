@@ -62,9 +62,17 @@ from starlink_isl.ofdm_channel import (
 )
 from starlink_isl.channel_io import (
     CHANNEL_CSV_SCHEMA_VERSION,
+    MAX_CHANNEL_CSV_CELLS,
     ChannelGridCSVData,
     load_channel_grid_csv,
     save_channel_grid_csv,
+    validate_channel_csv_size,
+)
+from starlink_isl.channel_state_io import (
+    CHANNEL_STATE_CSV_SCHEMA_VERSION,
+    ChannelStateCSVData,
+    load_channel_state_csv,
+    save_channel_state_csv,
 )
 from starlink_isl.sgp4_orbit import (
     GroundStation,
@@ -144,6 +152,7 @@ __all__ = [
     "CFOSequenceCompensationResult",
     "ChannelGridBaseline",
     "ChannelGridCSVData",
+    "ChannelStateCSVData",
     "ChannelStateSampling",
     "DownlinkDynamics",
     "DownlinkGeometry",
@@ -181,6 +190,8 @@ __all__ = [
     "REFERENCE_NOISE_TEMPERATURE_K",
     "SPEED_OF_LIGHT_KM_S",
     "CHANNEL_CSV_SCHEMA_VERSION",
+    "CHANNEL_STATE_CSV_SCHEMA_VERSION",
+    "MAX_CHANNEL_CSV_CELLS",
     "POSITION_VELOCITY_ABSOLUTE_TOLERANCE_M_S",
     "POSITION_VELOCITY_RELATIVE_TOLERANCE",
     "STATE_VECTOR_CSV_SCHEMA_VERSION",
@@ -218,6 +229,7 @@ __all__ = [
     "link_budget",
     "load_research_baseline",
     "load_channel_grid_csv",
+    "load_channel_state_csv",
     "load_satellite_state_csv",
     "propagate_ecef",
     "propagate_teme",
@@ -229,6 +241,7 @@ __all__ = [
     "satrec_from_omm",
     "save_siso_channel_grid_npz",
     "save_channel_grid_csv",
+    "save_channel_state_csv",
     "save_satellite_state_csv",
     "save_synchronized_siso_channel_grid_npz",
     "simulate_qpsk_snapshot",
@@ -239,5 +252,6 @@ __all__ = [
     "system_noise_temperature_k",
     "thermal_noise_power_dbw",
     "theoretical_qpsk_ber_awgn",
+    "validate_channel_csv_size",
     "visibility_window",
 ]

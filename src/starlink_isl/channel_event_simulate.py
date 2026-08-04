@@ -22,6 +22,10 @@ from starlink_isl.channel_grid_simulate import (
     DEFAULT_SOURCE_OMM_PATH,
     run_channel_grid_simulation,
 )
+from starlink_isl.channel_state_io import (
+    CHANNEL_STATE_CSV_SCHEMA_VERSION,
+    save_channel_state_csv,
+)
 from starlink_isl.downlink_dynamics import SPEED_OF_LIGHT_KM_S
 from starlink_isl.research_config import (
     DEFAULT_BASELINE_PATH,
@@ -62,6 +66,7 @@ class ChannelEventComparisonArtifacts:
     magnitude_evolution_csv: Path
     magnitude_evolution_npz: Path
     magnitude_evolution_png: Path
+    channel_state_csv: Path
 
 
 def _utc(value: datetime, name: str) -> datetime:
@@ -308,7 +313,7 @@ def _save_long_duration_magnitude(
     minimum_elevation_deg: float,
     other_losses_db: float,
     nominal_step_s: float,
-) -> tuple[dict[str, Any], Path, Path, Path]:
+) -> tuple[dict[str, Any], Path, Path, Path, Path]:
     """Sample the LOS amplitude over the full visible pass for display."""
 
     reference_utc = references["closest_approach"]
@@ -430,6 +435,16 @@ def _save_long_duration_magnitude(
             "long-duration LOS magnitude envelope; not an OFDM-symbol grid"
         ),
     )
+    channel_state_path = output_directory / "channel_state.csv"
+    save_channel_state_csv(
+        state,
+        channel_state_path,
+        reference_utc=reference_utc,
+        carrier_frequency_hz=config.radio.carrier_frequency_hz,
+        station=station,
+        other_losses_db=other_losses_db,
+        event_labels=event_labels,
+    )
     _save_magnitude_evolution_plot(
         time_s=time_s,
         frequency_hz=baseband_frequency_hz,
@@ -460,12 +475,21 @@ def _save_long_duration_magnitude(
             np.max(frequency_span_per_time_db)
         ),
         "events": event_records,
+        "compact_channel_state": {
+            "path": str(channel_state_path),
+            "schema_version": CHANNEL_STATE_CSV_SCHEMA_VERSION,
+            "sample_count": int(state.sample_count),
+            "frequency_axis_repeated": False,
+            "purpose": (
+                "full-pass state for on-demand frame-sized H[m,k] generation"
+            ),
+        },
         "interpretation": (
             "distance-dependent amplitude changes slowly, so a full-pass "
             "time axis reveals variation hidden inside a millisecond frame"
         ),
     }
-    return summary, csv_path, npz_path, png_path
+    return summary, csv_path, npz_path, png_path, channel_state_path
 
 
 def _save_phase_comparison(
@@ -591,6 +615,7 @@ def run_channel_event_comparison(
         magnitude_csv,
         magnitude_npz,
         magnitude_png,
+        channel_state_csv,
     ) = _save_long_duration_magnitude(
         output_directory,
         config=config,
@@ -611,6 +636,7 @@ def run_channel_event_comparison(
         magnitude_evolution_csv=magnitude_csv,
         magnitude_evolution_npz=magnitude_npz,
         magnitude_evolution_png=magnitude_png,
+        channel_state_csv=channel_state_csv,
     )
     metrics_frame.to_csv(artifacts.metrics_csv, index=False)
     summary = {

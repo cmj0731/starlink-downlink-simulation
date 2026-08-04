@@ -11,7 +11,9 @@ from starlink_isl import GroundStation, load_research_baseline
 from starlink_isl.channel_grid_simulate import run_channel_grid_simulation
 from starlink_isl.channel_io import (
     CHANNEL_CSV_SCHEMA_VERSION,
+    MAX_CHANNEL_CSV_CELLS,
     load_channel_grid_csv,
+    validate_channel_csv_size,
 )
 
 
@@ -68,6 +70,7 @@ def test_channel_csv_round_trip_preserves_complex_grid(tmp_path, monkeypatch):
         "channel_variant": "raw",
         "delay_compensation": "none",
         "doppler_compensation": "none",
+        "maximum_allowed_cells": MAX_CHANNEL_CSV_CELLS,
     }
     with np.load(artifacts.channel_grid_npz, allow_pickle=False) as expected:
         assert loaded.shape == (8, 223)
@@ -114,3 +117,29 @@ def test_channel_csv_loader_rejects_missing_complex_component(tmp_path):
 
     with pytest.raises(ValueError, match="missing required columns"):
         load_channel_grid_csv(path)
+
+
+def test_long_format_channel_csv_is_limited_to_short_frames():
+    assert validate_channel_csv_size(256, 223) == 57_088
+    oversized_time_count = MAX_CHANNEL_CSV_CELLS // 223 + 1
+
+    with pytest.raises(ValueError, match="too large for long-format CSV"):
+        validate_channel_csv_size(oversized_time_count, 223)
+
+
+def test_channel_simulation_rejects_oversized_csv_before_grid_allocation(
+    tmp_path,
+):
+    config = load_research_baseline(BASELINE_PATH)
+    oversized_time_count = (
+        MAX_CHANNEL_CSV_CELLS // config.ofdm.active_subcarrier_count + 1
+    )
+
+    with pytest.raises(ValueError, match="use --no-channel-csv"):
+        run_channel_grid_simulation(
+            tmp_path,
+            config=config,
+            reference_utc=datetime(2026, 7, 29, tzinfo=timezone.utc),
+            station=GroundStation(),
+            symbol_count=oversized_time_count,
+        )

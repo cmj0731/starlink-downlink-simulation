@@ -56,6 +56,7 @@ CelesTrak 다운로드·2시간 캐시 인터페이스는 그대로 유지된다
 | `outputs/channel_events/event_metrics.png` | 가시 시작·최근접·가시 종료 지표 |
 | `outputs/channel_events/event_phase_comparison.png` | 세 이벤트의 채널 위상 비교 |
 | `outputs/channel_events/magnitude_evolution.png` | 전체 패스 채널 크기 변화 |
+| `outputs/channel_events/channel_state.csv` | 전체 패스의 compact LOS 채널 상태 |
 | `outputs/channel_blocks/block_length_comparison.png` | 블록 길이별 채널 변화 |
 | `outputs/channel_blocks/block_start_compensation.png` | 블록 시작 상태 고정 보상의 잔차 |
 | `outputs/channel_prediction_errors/prediction_error_residual_cfo.png` | 예측 오차별 residual CFO |
@@ -316,6 +317,10 @@ raw 채널이 보상됐다고 표시된 파일을 거부한다.
 Python에서는 `load_channel_grid_csv`가 직사각형 grid, 중복 셀, schema와
 real/imag-magnitude 일관성을 검증한 뒤 `(time, frequency)` 배열을 반환한다.
 CSV가 불필요한 대규모 반복 분석에서는 `--no-channel-csv`로 생성을 끌 수 있다.
+`channel_grid.csv`는 짧은 OFDM 프레임 교환용이며 최대 1,000,000개의
+시간-주파수 셀만 허용한다. 이보다 큰 grid는 `--no-channel-csv`와 NPZ를
+사용하거나, Python에서 `grid.channel_response`를 바로 전달하거나, 여러 짧은
+블록으로 나누어 계산한다. 전체 패스를 long-format `H[m,k]` CSV로 펼치지 않는다.
 
 각 NPZ에도 `channel_variant`가 포함된다. `channel_grid.npz`는 `raw`,
 `synchronized_channel_grid.npz`는 `perfectly_compensated`,
@@ -398,6 +403,7 @@ summary가 저장된다. 최상위에는 다음 비교 산출물이 생성된다
 | `magnitude_evolution.csv` | 전체 가시 패스에서 시간에 따른 거리·Doppler·near-DC magnitude |
 | `magnitude_evolution.npz` | 긴 관측 시간축과 223개 부반송파의 magnitude grid |
 | `magnitude_evolution.png` | x=시간, y=주파수인 전체 패스 magnitude heatmap과 시간 단면 |
+| `channel_state.csv` | 주파수축을 반복하지 않는 전체 패스 raw LOS 상태와 지상국 메타데이터 |
 
 256처럼 짝수 심벌 grid에는 상대시각 0이 두 중앙 심벌 사이에 놓인다. CSV의
 이벤트 기준값은 두 중앙 상태를 상대시각 0으로 선형 보간해 기록하며, 실제
@@ -412,6 +418,10 @@ raw Doppler는 심벌당 한 번 표본화한 wrapped phase 그림에서 alias�
 이 느린 변화를 확인하기 위한 별도 관측 산출물이다. 기본 표시 간격은 0.1초이고
 `--magnitude-step-s`로 바꿀 수 있다. 이 간격은 저장량을 줄이기 위한 시각화
 표본 간격이며, OFDM 심벌 간격이나 실제 채널 grid의 시간축을 변경하지 않는다.
+`channel_state.csv`는 같은 시간축에서 위치·속도·LOS·거리·지연·Doppler·위상·
+경로 이득을 시간당 한 행으로 저장한다. 따라서 이후 필요한 짧은 OFDM 구간만
+선택해 `H[m,k]`를 즉석 또는 블록 단위로 만들 수 있으며, 전체 패스에 주파수축을
+223번 반복하는 대형 CSV를 만들 필요가 없다.
 
 ## OFDM 블록 길이별 채널 변화
 

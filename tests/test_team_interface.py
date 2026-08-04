@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 from starlink_isl import load_research_baseline
+from starlink_isl.channel_io import MAX_CHANNEL_CSV_CELLS
 from starlink_isl.research_config import TeamConfirmation
 from starlink_isl.team_interface import (
     build_team_frequency_mapping,
@@ -77,6 +78,10 @@ def test_manifest_freezes_tensor_units_signs_and_responsibilities(baseline):
     exchange = manifest["channel_tensor"]["exchange_files"]
     assert exchange["canonical"] == "channel_grid.npz"
     assert exchange["portable"] == "channel_grid.csv"
+    assert exchange["portable_scope"] == "short OFDM frames only"
+    assert exchange["portable_maximum_cells"] == MAX_CHANNEL_CSV_CELLS
+    assert exchange["compact_full_pass"] == "channel_state.csv"
+    assert exchange["compact_full_pass_frequency_axis_repeated"] is False
     assert exchange["complex_encoding"] == ["h_real", "h_imag"]
     state_input = manifest["external_state_vector_input"]
     assert state_input["supported_coordinate_frames"] == ["TEME", "ECEF"]

@@ -17,6 +17,7 @@ IntArray = NDArray[np.int64]
 ComplexArray = NDArray[np.complex128]
 
 CHANNEL_CSV_SCHEMA_VERSION = 2
+MAX_CHANNEL_CSV_CELLS = 1_000_000
 RAW_CHANNEL_VARIANT = "raw"
 NO_CHANNEL_COMPENSATION = "none"
 SUPPORTED_CHANNEL_VARIANTS = frozenset(
@@ -92,6 +93,28 @@ class ChannelGridCSVData:
         return self.channel_response.shape
 
 
+def validate_channel_csv_size(time_count: int, frequency_count: int) -> int:
+    """Reject channel grids that are too large for long-format CSV exchange."""
+
+    counts = {"time_count": time_count, "frequency_count": frequency_count}
+    for name, value in counts.items():
+        if isinstance(value, (bool, np.bool_)) or not isinstance(
+            value, (int, np.integer)
+        ):
+            raise TypeError(f"{name} must be an integer")
+        if int(value) <= 0:
+            raise ValueError(f"{name} must be positive")
+    cell_count = int(time_count) * int(frequency_count)
+    if cell_count > MAX_CHANNEL_CSV_CELLS:
+        raise ValueError(
+            "channel grid is too large for long-format CSV: "
+            f"{cell_count:,} cells exceed the {MAX_CHANNEL_CSV_CELLS:,}-cell "
+            "limit; use --no-channel-csv with NPZ, compact channel_state.csv, "
+            "or block processing"
+        )
+    return cell_count
+
+
 def _iso(value: datetime) -> str:
     if value.tzinfo is None:
         raise ValueError("reference_utc must be timezone-aware")
@@ -115,6 +138,7 @@ def save_channel_grid_csv(
         raise ValueError("reference_utc must be timezone-aware")
     reference = reference_utc.astimezone(timezone.utc)
     time_count, frequency_count = grid.shape
+    validate_channel_csv_size(time_count, frequency_count)
     repeat_time = lambda values: np.repeat(values, frequency_count)
     tile_frequency = lambda values: np.tile(values, time_count)
     evaluation_utc = np.asarray(
