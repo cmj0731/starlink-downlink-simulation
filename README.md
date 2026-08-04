@@ -296,10 +296,19 @@ python -m starlink_isl.channel_grid_simulate
 
 `channel_grid.npz`가 복소수 정밀도와 배열 구조를 보존하는 canonical 파일이다.
 `channel_grid.csv`는 한 `(m,k)` 셀을 한 행으로 펴며 시간-major 순서로 저장한다.
+CSV schema v2는 `channel_variant=raw`, `delay_compensation=none`,
+`doppler_compensation=none`을 모든 행에 기록한다. loader는 채널 종류가 섞였거나
+raw 채널이 보상됐다고 표시된 파일을 거부한다.
 다른 언어 또는 CSV 기반 모듈은 `h_real + 1j*h_imag`로 복소 채널을 복원한다.
 Python에서는 `load_channel_grid_csv`가 직사각형 grid, 중복 셀, schema와
 real/imag-magnitude 일관성을 검증한 뒤 `(time, frequency)` 배열을 반환한다.
 CSV가 불필요한 대규모 반복 분석에서는 `--no-channel-csv`로 생성을 끌 수 있다.
+
+각 NPZ에도 `channel_variant`가 포함된다. `channel_grid.npz`는 `raw`,
+`synchronized_channel_grid.npz`는 `perfectly_compensated`,
+`block_start_synchronized_channel_grid.npz`는 `block_start_compensated`이다.
+결과 `summary.json`의 `channel_artifacts`에도 파일별 동일한 구분과 실제
+`prediction_label`을 기록하므로 파일명만 보고 보상 상태를 추측하지 않는다.
 
 채널식은 다음과 같다.
 

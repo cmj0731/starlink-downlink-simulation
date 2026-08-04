@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import starlink_isl.channel_grid_simulate as channel_grid_module
 from starlink_isl import GroundStation, load_research_baseline
 from starlink_isl.channel_grid_simulate import run_channel_grid_simulation
 from starlink_isl.channel_io import (
@@ -19,7 +20,14 @@ BASELINE_PATH = ROOT / "configs" / "ofdm_baseline.yaml"
 OMM_FIXTURE = ROOT / "tests" / "fixtures" / "starlink_5285_omm.json"
 
 
-def test_channel_csv_round_trip_preserves_complex_grid(tmp_path):
+def test_channel_csv_round_trip_preserves_complex_grid(tmp_path, monkeypatch):
+    monkeypatch.setattr(channel_grid_module, "_save_heatmap", lambda *args: None)
+    monkeypatch.setattr(
+        channel_grid_module,
+        "_save_synchronization_comparison",
+        lambda *args: None,
+    )
+    monkeypatch.setattr(channel_grid_module, "_save_slices", lambda *args: None)
     config = load_research_baseline(BASELINE_PATH)
     record = json.loads(OMM_FIXTURE.read_text(encoding="utf-8"))[0]
     artifacts = run_channel_grid_simulation(
@@ -45,11 +53,25 @@ def test_channel_csv_round_trip_preserves_complex_grid(tmp_path):
     raw_csv = pd.read_csv(artifacts.channel_grid_csv)
     assert len(raw_csv) == 8 * 223
     assert set(raw_csv["schema_version"]) == {CHANNEL_CSV_SCHEMA_VERSION}
+    assert set(raw_csv["channel_variant"]) == {"raw"}
+    assert set(raw_csv["delay_compensation"]) == {"none"}
+    assert set(raw_csv["doppler_compensation"]) == {"none"}
     assert raw_csv[["h_real", "h_imag"]].notna().all().all()
 
     loaded = load_channel_grid_csv(artifacts.channel_grid_csv)
+    assert loaded.channel_variant == "raw"
+    assert loaded.delay_compensation == "none"
+    assert loaded.doppler_compensation == "none"
+    summary = json.loads(artifacts.summary_json.read_text(encoding="utf-8"))
+    assert summary["channel_artifacts"]["channel_grid.csv"] == {
+        "generated": True,
+        "channel_variant": "raw",
+        "delay_compensation": "none",
+        "doppler_compensation": "none",
+    }
     with np.load(artifacts.channel_grid_npz, allow_pickle=False) as expected:
         assert loaded.shape == (8, 223)
+        assert expected["channel_variant"].item() == "raw"
         np.testing.assert_allclose(
             loaded.channel_response,
             expected["channel_response"],
@@ -73,6 +95,12 @@ def test_channel_csv_round_trip_preserves_complex_grid(tmp_path):
             rtol=2.0e-15,
             atol=0.0,
         )
+
+    mixed_path = tmp_path / "mixed-channel-variant.csv"
+    raw_csv.loc[0, "channel_variant"] = "perfectly_compensated"
+    raw_csv.to_csv(mixed_path, index=False)
+    with pytest.raises(ValueError, match="channel_variant must be one"):
+        load_channel_grid_csv(mixed_path)
 
 
 def test_channel_csv_loader_rejects_missing_complex_component(tmp_path):

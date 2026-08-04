@@ -16,9 +16,21 @@ FloatArray = NDArray[np.float64]
 IntArray = NDArray[np.int64]
 ComplexArray = NDArray[np.complex128]
 
-CHANNEL_CSV_SCHEMA_VERSION = 1
+CHANNEL_CSV_SCHEMA_VERSION = 2
+RAW_CHANNEL_VARIANT = "raw"
+NO_CHANNEL_COMPENSATION = "none"
+SUPPORTED_CHANNEL_VARIANTS = frozenset(
+    {
+        RAW_CHANNEL_VARIANT,
+        "block_start_compensated",
+        "perfectly_compensated",
+    }
+)
 CHANNEL_CSV_REQUIRED_COLUMNS = (
     "schema_version",
+    "channel_variant",
+    "delay_compensation",
+    "doppler_compensation",
     "symbol_index",
     "symbol_start_time_s",
     "channel_evaluation_time_s",
@@ -50,6 +62,9 @@ class ChannelGridCSVData:
     """Validated arrays reconstructed from the long-format exchange CSV."""
 
     channel_response: ComplexArray
+    channel_variant: str
+    delay_compensation: str
+    doppler_compensation: str
     symbol_indices: IntArray
     symbol_start_time_s: FloatArray
     time_s: FloatArray
@@ -112,6 +127,9 @@ def save_channel_grid_csv(
     frame = pd.DataFrame(
         {
             "schema_version": CHANNEL_CSV_SCHEMA_VERSION,
+            "channel_variant": RAW_CHANNEL_VARIANT,
+            "delay_compensation": NO_CHANNEL_COMPENSATION,
+            "doppler_compensation": NO_CHANNEL_COMPENSATION,
             "symbol_index": repeat_time(grid.axes.time.symbol_indices),
             "symbol_start_time_s": repeat_time(
                 grid.axes.time.symbol_start_time_s
@@ -194,6 +212,13 @@ def _constant_by_frequency(
     return first
 
 
+def _constant_text(frame: pd.DataFrame, column: str) -> str:
+    values = frame[column].astype(str).str.strip().unique()
+    if values.size != 1 or not values[0]:
+        raise ValueError(f"{column} must be one non-empty constant value")
+    return str(values[0])
+
+
 def load_channel_grid_csv(path: str | Path) -> ChannelGridCSVData:
     """Load and validate a time-major channel exchange CSV."""
 
@@ -214,6 +239,24 @@ def load_channel_grid_csv(path: str | Path) -> ChannelGridCSVData:
         raise ValueError("channel CSV contains missing required values")
     if frame.duplicated(["symbol_index", "grid_column"]).any():
         raise ValueError("channel CSV contains duplicate (symbol, grid) cells")
+
+    channel_variant = _constant_text(frame, "channel_variant")
+    if channel_variant not in SUPPORTED_CHANNEL_VARIANTS:
+        raise ValueError(f"unsupported channel_variant: {channel_variant}")
+    delay_compensation = _constant_text(frame, "delay_compensation")
+    doppler_compensation = _constant_text(frame, "doppler_compensation")
+    if channel_variant == RAW_CHANNEL_VARIANT and (
+        delay_compensation != NO_CHANNEL_COMPENSATION
+        or doppler_compensation != NO_CHANNEL_COMPENSATION
+    ):
+        raise ValueError("raw channel CSV must not declare compensation")
+    if channel_variant != RAW_CHANNEL_VARIANT and (
+        delay_compensation == NO_CHANNEL_COMPENSATION
+        and doppler_compensation == NO_CHANNEL_COMPENSATION
+    ):
+        raise ValueError(
+            "compensated channel CSV must declare a compensation method"
+        )
 
     frame = frame.sort_values(
         ["symbol_index", "grid_column"], kind="stable"
@@ -262,6 +305,9 @@ def load_channel_grid_csv(path: str | Path) -> ChannelGridCSVData:
         raise ValueError("other_losses_db must be constant")
     return ChannelGridCSVData(
         channel_response=response,
+        channel_variant=channel_variant,
+        delay_compensation=delay_compensation,
+        doppler_compensation=doppler_compensation,
         symbol_indices=np.asarray(symbols, dtype=np.int64),
         symbol_start_time_s=np.asarray(
             _constant_by_symbol(

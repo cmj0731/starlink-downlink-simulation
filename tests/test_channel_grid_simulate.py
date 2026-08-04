@@ -45,6 +45,9 @@ def test_channel_grid_simulation_writes_viewable_artifacts(tmp_path):
 
     with np.load(artifacts.channel_grid_npz, allow_pickle=False) as saved:
         assert saved["channel_response"].shape == (16, 223)
+        assert saved["channel_variant"].item() == "raw"
+        assert saved["delay_compensation"].item() == "none"
+        assert saved["doppler_compensation"].item() == "none"
         assert saved["time_s"][0] < 0.0 < saved["time_s"][-1]
     with np.load(
         artifacts.synchronized_channel_grid_npz,
@@ -56,12 +59,14 @@ def test_channel_grid_simulation_writes_viewable_artifacts(tmp_path):
         assert saved["prediction_label"].item() == (
             "perfect_same_state_prediction"
         )
+        assert saved["channel_variant"].item() == "perfectly_compensated"
     with np.load(
         artifacts.block_start_synchronized_channel_grid_npz,
         allow_pickle=False,
     ) as saved:
         assert saved["channel_response"].shape == (16, 223)
         assert saved["prediction_label"].item().startswith("block_start")
+        assert saved["channel_variant"].item() == "block_start_compensated"
         assert saved["residual_propagation_delay_s"][0] == 0.0
         assert saved["residual_carrier_doppler_phase_rad"][0] == 0.0
     time_axis = pd.read_csv(artifacts.time_axis_csv)
@@ -80,6 +85,12 @@ def test_channel_grid_simulation_writes_viewable_artifacts(tmp_path):
         "displayed_values": "transpose of H[m,k] for visualization only",
     }
     assert summary["waveform_bin_order"] == "fftshifted"
+    assert summary["channel_artifacts"]["channel_grid.csv"] == {
+        "generated": True,
+        "channel_variant": "raw",
+        "delay_compensation": "none",
+        "doppler_compensation": "none",
+    }
     synchronization = summary["phase_synchronization"]
     assert synchronization["prediction_label"] == (
         "perfect_same_state_prediction"

@@ -442,6 +442,9 @@ def save_siso_channel_grid_npz(
     np.savez_compressed(
         output_path,
         channel_response=grid.channel_response,
+        channel_variant=np.asarray("raw"),
+        delay_compensation=np.asarray("none"),
+        doppler_compensation=np.asarray("none"),
         time_s=grid.axes.time.time_s,
         symbol_indices=grid.axes.time.symbol_indices,
         symbol_start_time_s=grid.axes.time.symbol_start_time_s,
@@ -477,9 +480,13 @@ def save_siso_channel_grid_npz(
 def save_synchronized_siso_channel_grid_npz(
     synchronized: SynchronizedSISOChannelGrid,
     path: str | Path,
+    *,
+    channel_variant: str = "predicted_compensated",
 ) -> Path:
     """Save synchronized and raw responses with phase-error metadata."""
 
+    if not isinstance(channel_variant, str) or not channel_variant.strip():
+        raise ValueError("channel_variant must be a non-empty string")
     grid = synchronized.raw_grid
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -487,6 +494,9 @@ def save_synchronized_siso_channel_grid_npz(
         output_path,
         channel_response=synchronized.channel_response,
         raw_channel_response=grid.channel_response,
+        channel_variant=np.asarray(channel_variant.strip()),
+        delay_compensation=np.asarray(synchronized.prediction_label),
+        doppler_compensation=np.asarray(synchronized.prediction_label),
         time_s=grid.axes.time.time_s,
         symbol_indices=grid.axes.time.symbol_indices,
         signed_subcarrier_indices=(

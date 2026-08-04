@@ -399,6 +399,7 @@ def _summary(
     reference_event: str,
     anchor_offsets_s: np.ndarray,
     station: GroundStation,
+    export_channel_csv: bool,
     source_metadata: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     magnitude_db = 20.0 * np.log10(np.abs(grid.channel_response))
@@ -497,6 +498,29 @@ def _summary(
             "maximum": float(np.max(magnitude_db)),
         },
         "other_losses_db": grid.other_losses_db,
+        "channel_artifacts": {
+            "channel_grid.npz": {
+                "channel_variant": "raw",
+                "delay_compensation": "none",
+                "doppler_compensation": "none",
+            },
+            "channel_grid.csv": {
+                "generated": export_channel_csv,
+                "channel_variant": "raw",
+                "delay_compensation": "none",
+                "doppler_compensation": "none",
+            },
+            "synchronized_channel_grid.npz": {
+                "channel_variant": "perfectly_compensated",
+                "delay_compensation": synchronized.prediction_label,
+                "doppler_compensation": synchronized.prediction_label,
+            },
+            "block_start_synchronized_channel_grid.npz": {
+                "channel_variant": "block_start_compensated",
+                "delay_compensation": block_start_synchronized.prediction_label,
+                "doppler_compensation": block_start_synchronized.prediction_label,
+            },
+        },
         "phase_synchronization": {
             "prediction_label": synchronized.prediction_label,
             "removed_terms": [
@@ -715,10 +739,12 @@ def run_channel_grid_simulation(
     save_synchronized_siso_channel_grid_npz(
         synchronized,
         artifacts.synchronized_channel_grid_npz,
+        channel_variant="perfectly_compensated",
     )
     save_synchronized_siso_channel_grid_npz(
         block_start_synchronized,
         artifacts.block_start_synchronized_channel_grid_npz,
+        channel_variant="block_start_compensated",
     )
     _save_axes_csv(
         axes,
@@ -738,6 +764,7 @@ def run_channel_grid_simulation(
                 reference_event,
                 anchor_offsets_s,
                 station,
+                export_channel_csv,
                 source_metadata,
             ),
             ensure_ascii=False,

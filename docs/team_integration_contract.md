@@ -136,6 +136,12 @@ Doppler를 다시 계산하며, 제공된 Doppler를 별도 truth로 간주하�
 baseband/RF 주파수도 같은 행에 포함한다. CSV를 wide matrix로 임의 변환하여
 주파수 열 순서를 잃지 않는다.
 
+CSV schema v2에서 `channel_variant`, `delay_compensation`,
+`doppler_compensation`은 파일 전체에서 하나의 값이어야 한다. 현재 CSV는
+`raw/none/none`이며, 보상 채널로 해석하거나 다시 이름만 바꾸지 않는다.
+NPZ와 `summary.json`도 `raw`, `perfectly_compensated`,
+`block_start_compensated`를 같은 이름으로 기록한다.
+
 빔포밍/안테나 배열 차원, 다중경로 tap, 실제 Starlink 파형 주장은 v1 SISO
 계약에 포함하지 않는다. 이후 MIMO·빔포밍을 도입할 때는 `H[m,k]`의 앞 또는
 뒤에 안테나 축을 추가하는 별도 버전으로 올린다.
