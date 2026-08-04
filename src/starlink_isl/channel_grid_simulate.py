@@ -614,6 +614,7 @@ def _summary(
             "position_velocity_consistency": metadata.get(
                 "position_velocity_consistency"
             ),
+            "physical_validation": metadata.get("physical_validation"),
         },
         "channel_formula": (
             "H[m,k]=a[m,k] exp(j phi_D[m]) "
@@ -933,6 +934,7 @@ def main() -> None:
             "position_velocity_consistency": (
                 external.position_velocity_consistency.as_metadata()
             ),
+            "physical_validation": external.physical_validation.as_metadata(),
         }
     else:
         if geometry_summary is None:

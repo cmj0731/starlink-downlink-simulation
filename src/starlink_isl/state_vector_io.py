@@ -23,13 +23,20 @@ from starlink_isl.sgp4_orbit import (
 )
 from starlink_isl.si_interface import DownlinkStateSI, downlink_state_si
 
-STATE_VECTOR_CSV_SCHEMA_VERSION = 1
+STATE_VECTOR_CSV_SCHEMA_VERSION = 2
+STATE_POSITION_UNIT = "m"
+STATE_VELOCITY_UNIT = "m/s"
+EARTH_ORBIT_RADIUS_MIN_M = 6_300_000.0
+EARTH_ORBIT_RADIUS_MAX_M = 100_000_000.0
+EARTH_ORBIT_SPEED_MAX_M_S = 20_000.0
 POSITION_VELOCITY_ABSOLUTE_TOLERANCE_M_S = 50.0
 POSITION_VELOCITY_RELATIVE_TOLERANCE = 0.05
 STATE_VECTOR_REQUIRED_COLUMNS = (
     "schema_version",
     "utc",
     "coordinate_frame",
+    "position_unit",
+    "velocity_unit",
     "satellite_x_m",
     "satellite_y_m",
     "satellite_z_m",
@@ -70,6 +77,34 @@ class PositionVelocityConsistency:
 
 
 @dataclass(frozen=True, slots=True)
+class StateVectorPhysicalValidation:
+    """Physical scale checks used to catch mislabeled state-vector units."""
+
+    minimum_geocentric_radius_m: float
+    maximum_geocentric_radius_m: float
+    minimum_speed_m_s: float
+    maximum_speed_m_s: float
+
+    def as_metadata(self) -> dict[str, float | str | bool]:
+        """Return JSON-ready physical validation metadata."""
+
+        return {
+            "passed": True,
+            "position_unit": STATE_POSITION_UNIT,
+            "velocity_unit": STATE_VELOCITY_UNIT,
+            "minimum_geocentric_radius_m": self.minimum_geocentric_radius_m,
+            "maximum_geocentric_radius_m": self.maximum_geocentric_radius_m,
+            "minimum_speed_m_s": self.minimum_speed_m_s,
+            "maximum_speed_m_s": self.maximum_speed_m_s,
+            "allowed_geocentric_radius_m": [
+                EARTH_ORBIT_RADIUS_MIN_M,
+                EARTH_ORBIT_RADIUS_MAX_M,
+            ],
+            "maximum_allowed_speed_m_s": EARTH_ORBIT_SPEED_MAX_M_S,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ExternalSatelliteState:
     """Time-ordered external states normalized to ECEF kilometres and km/s."""
 
@@ -77,6 +112,7 @@ class ExternalSatelliteState:
     state_ecef: KinematicState
     source_coordinate_frame: str
     position_velocity_consistency: PositionVelocityConsistency
+    physical_validation: StateVectorPhysicalValidation
     object_name: str | None = None
     norad_catalog_id: int | None = None
 
@@ -103,6 +139,63 @@ def _constant_optional_text(frame: pd.DataFrame, column: str) -> str | None:
     return None if values.size == 0 else str(values[0])
 
 
+def _required_constant_text(frame: pd.DataFrame, column: str) -> str:
+    values = frame[column].dropna().astype(str).str.strip().unique()
+    if values.size != 1 or not values[0]:
+        raise ValueError(f"{column} must be one non-empty constant value")
+    return str(values[0])
+
+
+def _strict_time_intervals_s(
+    datetimes: tuple[datetime, ...],
+) -> np.ndarray:
+    intervals_s = np.asarray(
+        [
+            (end - start).total_seconds()
+            for start, end in zip(datetimes[:-1], datetimes[1:], strict=True)
+        ],
+        dtype=np.float64,
+    )
+    if not np.all(np.isfinite(intervals_s)) or np.any(intervals_s <= 0.0):
+        raise ValueError("state-vector UTC samples must be strictly increasing")
+    return intervals_s
+
+
+def _validate_physical_scale(
+    position_m: np.ndarray,
+    velocity_m_s: np.ndarray,
+) -> StateVectorPhysicalValidation:
+    """Reject values whose scale is incompatible with an Earth-orbit state."""
+
+    radius_m = np.linalg.norm(position_m, axis=1)
+    speed_m_s = np.linalg.norm(velocity_m_s, axis=1)
+    invalid_radius = (radius_m < EARTH_ORBIT_RADIUS_MIN_M) | (
+        radius_m > EARTH_ORBIT_RADIUS_MAX_M
+    )
+    if np.any(invalid_radius):
+        sample = int(np.flatnonzero(invalid_radius)[0])
+        raise ValueError(
+            "state-vector geocentric radius is outside the supported "
+            "Earth-orbit range; check whether position values are metres "
+            f"rather than kilometres (sample {sample}, "
+            f"radius={radius_m[sample]:.6g} m)"
+        )
+    excessive_speed = speed_m_s > EARTH_ORBIT_SPEED_MAX_M_S
+    if np.any(excessive_speed):
+        sample = int(np.flatnonzero(excessive_speed)[0])
+        raise ValueError(
+            "state-vector speed exceeds the supported Earth-orbit range; "
+            "check whether velocity values are m/s rather than km/s "
+            f"(sample {sample}, speed={speed_m_s[sample]:.6g} m/s)"
+        )
+    return StateVectorPhysicalValidation(
+        minimum_geocentric_radius_m=float(np.min(radius_m)),
+        maximum_geocentric_radius_m=float(np.max(radius_m)),
+        minimum_speed_m_s=float(np.min(speed_m_s)),
+        maximum_speed_m_s=float(np.max(speed_m_s)),
+    )
+
+
 def _validate_position_velocity_consistency(
     datetimes: tuple[datetime, ...],
     position_m: np.ndarray,
@@ -110,13 +203,7 @@ def _validate_position_velocity_consistency(
 ) -> PositionVelocityConsistency:
     """Reject state vectors whose positions and velocities disagree."""
 
-    interval_s = np.asarray(
-        [
-            (end - start).total_seconds()
-            for start, end in zip(datetimes[:-1], datetimes[1:], strict=True)
-        ],
-        dtype=np.float64,
-    )
+    interval_s = _strict_time_intervals_s(datetimes)
     position_difference_velocity_m_s = (
         np.diff(position_m, axis=0) / interval_s[:, None]
     )
@@ -171,8 +258,8 @@ def save_satellite_state_csv(
     """Write an external-state CSV in SI units without changing its frame."""
 
     epochs = tuple(datetimes)
-    if not epochs:
-        raise ValueError("at least one satellite state is required")
+    if len(epochs) < 2:
+        raise ValueError("at least two satellite states are required")
     frame_name = coordinate_frame.upper()
     if frame_name not in SUPPORTED_STATE_FRAMES:
         raise ValueError("coordinate_frame must be TEME or ECEF")
@@ -181,23 +268,33 @@ def save_satellite_state_csv(
     ):
         raise ValueError("state position and velocity must have shape (time, 3)")
     utc_values = []
+    normalized_epochs = []
     for value in epochs:
         if value.tzinfo is None:
             raise ValueError("all state datetimes must be timezone-aware")
-        utc_values.append(
-            value.astimezone(timezone.utc)
-            .isoformat()
-            .replace("+00:00", "Z")
-        )
+        normalized = value.astimezone(timezone.utc)
+        normalized_epochs.append(normalized)
+        utc_values.append(normalized.isoformat().replace("+00:00", "Z"))
+    _strict_time_intervals_s(tuple(normalized_epochs))
     position_m = 1_000.0 * np.asarray(state.position_km, dtype=np.float64)
     velocity_m_s = 1_000.0 * np.asarray(
         state.velocity_km_s, dtype=np.float64
+    )
+    if not np.all(np.isfinite(position_m)) or not np.all(
+        np.isfinite(velocity_m_s)
+    ):
+        raise ValueError("state position and velocity must be finite")
+    _validate_physical_scale(position_m, velocity_m_s)
+    _validate_position_velocity_consistency(
+        tuple(normalized_epochs), position_m, velocity_m_s
     )
     frame = pd.DataFrame(
         {
             "schema_version": STATE_VECTOR_CSV_SCHEMA_VERSION,
             "utc": utc_values,
             "coordinate_frame": frame_name,
+            "position_unit": STATE_POSITION_UNIT,
+            "velocity_unit": STATE_VELOCITY_UNIT,
             "satellite_x_m": position_m[:, 0],
             "satellite_y_m": position_m[:, 1],
             "satellite_z_m": position_m[:, 2],
@@ -245,10 +342,20 @@ def load_satellite_state_csv(path: str | Path) -> ExternalSatelliteState:
             "coordinate_frame must be one constant value: TEME or ECEF"
         )
     source_frame = str(frames[0])
+    position_unit = _required_constant_text(frame, "position_unit")
+    velocity_unit = _required_constant_text(frame, "velocity_unit")
+    if position_unit != STATE_POSITION_UNIT:
+        raise ValueError(
+            f"position_unit must be '{STATE_POSITION_UNIT}', got "
+            f"'{position_unit}'"
+        )
+    if velocity_unit != STATE_VELOCITY_UNIT:
+        raise ValueError(
+            f"velocity_unit must be '{STATE_VELOCITY_UNIT}', got "
+            f"'{velocity_unit}'"
+        )
     datetimes = tuple(_parse_utc(value) for value in frame["utc"])
-    timestamps = np.asarray([value.timestamp() for value in datetimes])
-    if np.any(np.diff(timestamps) <= 0.0):
-        raise ValueError("state-vector UTC samples must be strictly increasing")
+    _strict_time_intervals_s(datetimes)
 
     position_columns = [
         "satellite_x_m",
@@ -269,6 +376,7 @@ def load_satellite_state_csv(path: str | Path) -> ExternalSatelliteState:
         np.isfinite(velocity_m_s)
     ):
         raise ValueError("state-vector position and velocity must be finite")
+    physical_validation = _validate_physical_scale(position_m, velocity_m_s)
     consistency = _validate_position_velocity_consistency(
         datetimes,
         position_m,
@@ -287,6 +395,7 @@ def load_satellite_state_csv(path: str | Path) -> ExternalSatelliteState:
         state_ecef=state_ecef,
         source_coordinate_frame=source_frame,
         position_velocity_consistency=consistency,
+        physical_validation=physical_validation,
         object_name=_constant_optional_text(frame, "object_name"),
         norad_catalog_id=norad_id,
     )

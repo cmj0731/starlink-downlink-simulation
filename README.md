@@ -230,9 +230,11 @@ t_m=t_{\mathrm{frame}}
 
 | 열 | 단위/규칙 |
 |---|---|
-| `schema_version` | 현재 `1` |
+| `schema_version` | 현재 `2` |
 | `utc` | timezone이 포함된 ISO-8601 UTC |
 | `coordinate_frame` | 파일 전체가 `TEME` 또는 `ECEF` 중 하나 |
+| `position_unit` | 파일 전체가 `m` |
+| `velocity_unit` | 파일 전체가 `m/s` |
 | `satellite_x_m`, `satellite_y_m`, `satellite_z_m` | 위치, m |
 | `satellite_vx_m_s`, `satellite_vy_m_s`, `satellite_vz_m_s` | 속도, m/s |
 | `object_name` | 선택 사항, 파일 전체에서 동일 |
@@ -253,6 +255,11 @@ loader는 좌표계 변환 전에 각 구간의 `position difference / dt`와 �
 넘으면 위치·속도의 시각, 좌표계 또는 단위가 일치하지 않는 것으로 보고 채널
 생성을 중단한다. 통과한 최대·RMS·상대 오차와 허용값은 `summary.json`의
 `orbit_state.position_velocity_consistency`에 기록된다.
+
+시간은 중복·역순을 허용하지 않고 위치·속도의 NaN/Inf도 거부한다. 단위 문자열이
+정확하더라도 값이 km 또는 km/s 규모로 잘못 저장되는 경우를 잡기 위해 지구 중심
+거리 `6.3e6~1.0e8 m`와 최대 속력 `2.0e4 m/s` 범위를 추가로 검사한다. 통과한
+최소·최대 반지름과 속력은 `orbit_state.physical_validation`에 기록된다.
 
 기존 SGP4 요약 없이 외부 벡터만 사용할 때의 명령은 다음과 같다.
 

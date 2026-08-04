@@ -19,9 +19,14 @@ from starlink_isl.research_config import (
     load_research_baseline,
 )
 from starlink_isl.state_vector_io import (
+    EARTH_ORBIT_RADIUS_MAX_M,
+    EARTH_ORBIT_RADIUS_MIN_M,
+    EARTH_ORBIT_SPEED_MAX_M_S,
     POSITION_VELOCITY_ABSOLUTE_TOLERANCE_M_S,
     POSITION_VELOCITY_RELATIVE_TOLERANCE,
+    STATE_POSITION_UNIT,
     STATE_VECTOR_CSV_SCHEMA_VERSION,
+    STATE_VELOCITY_UNIT,
 )
 
 TEAM_INTERFACE_SCHEMA_VERSION = 1
@@ -187,6 +192,10 @@ def build_team_interface_manifest(
                 "satellite_vy_m_s",
                 "satellite_vz_m_s",
             ],
+            "required_unit_columns": {
+                "position_unit": STATE_POSITION_UNIT,
+                "velocity_unit": STATE_VELOCITY_UNIT,
+            },
             "normalization_frame": "ECEF",
             "teme_velocity_transform": "v_ecef=R*v_teme-omega_E_cross_r_ecef",
             "position_velocity_consistency": {
@@ -197,6 +206,14 @@ def build_team_interface_manifest(
                     POSITION_VELOCITY_ABSOLUTE_TOLERANCE_M_S
                 ),
                 "relative_tolerance": POSITION_VELOCITY_RELATIVE_TOLERANCE,
+                "failure_policy": "reject before channel generation",
+            },
+            "physical_scale_validation": {
+                "geocentric_radius_range_m": [
+                    EARTH_ORBIT_RADIUS_MIN_M,
+                    EARTH_ORBIT_RADIUS_MAX_M,
+                ],
+                "maximum_speed_m_s": EARTH_ORBIT_SPEED_MAX_M_S,
                 "failure_policy": "reject before channel generation",
             },
         },

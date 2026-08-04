@@ -66,6 +66,8 @@ def test_state_vector_csv_normalizes_to_ecef(tmp_path, coordinate_frame):
     frame = pd.read_csv(path)
     assert set(frame["schema_version"]) == {STATE_VECTOR_CSV_SCHEMA_VERSION}
     assert set(frame["coordinate_frame"]) == {coordinate_frame}
+    assert set(frame["position_unit"]) == {"m"}
+    assert set(frame["velocity_unit"]) == {"m/s"}
     loaded = load_satellite_state_csv(path)
     expected_ecef = propagate_ecef(SATELLITE, EPOCHS)
     assert loaded.source_coordinate_frame == coordinate_frame
@@ -74,6 +76,8 @@ def test_state_vector_csv_normalizes_to_ecef(tmp_path, coordinate_frame):
         loaded.position_velocity_consistency.maximum_relative_error
         < 1.0e-5
     )
+    assert loaded.physical_validation.minimum_geocentric_radius_m > 6.0e6
+    assert loaded.physical_validation.maximum_speed_m_s < 10_000.0
     assert loaded.object_name == "STARLINK-5285"
     assert loaded.norad_catalog_id == 55296
     np.testing.assert_allclose(
@@ -198,6 +202,104 @@ def test_state_vector_loader_rejects_ambiguous_frames(tmp_path):
         load_satellite_state_csv(path)
 
 
+@pytest.mark.parametrize("time_error", ["duplicate", "reverse"])
+def test_state_vector_loader_rejects_non_increasing_time(tmp_path, time_error):
+    path = save_satellite_state_csv(
+        tmp_path / f"{time_error}-time.csv",
+        EPOCHS,
+        propagate_ecef(SATELLITE, EPOCHS),
+        coordinate_frame="ECEF",
+    )
+    frame = pd.read_csv(path)
+    if time_error == "duplicate":
+        frame.loc[1, "utc"] = frame.loc[0, "utc"]
+    else:
+        frame.loc[1, "utc"], frame.loc[2, "utc"] = (
+            frame.loc[2, "utc"],
+            frame.loc[1, "utc"],
+        )
+    frame.to_csv(path, index=False)
+
+    with pytest.raises(ValueError, match="strictly increasing"):
+        load_satellite_state_csv(path)
+
+
+@pytest.mark.parametrize(
+    ("column", "invalid_value"),
+    [
+        ("satellite_x_m", np.nan),
+        ("satellite_vz_m_s", np.inf),
+    ],
+)
+def test_state_vector_loader_rejects_nonfinite_values(
+    tmp_path,
+    column,
+    invalid_value,
+):
+    path = save_satellite_state_csv(
+        tmp_path / "nonfinite.csv",
+        EPOCHS,
+        propagate_ecef(SATELLITE, EPOCHS),
+        coordinate_frame="ECEF",
+    )
+    frame = pd.read_csv(path)
+    frame.loc[1, column] = invalid_value
+    frame.to_csv(path, index=False)
+
+    with pytest.raises(ValueError, match="must be finite"):
+        load_satellite_state_csv(path)
+
+
+@pytest.mark.parametrize(
+    ("column", "wrong_unit", "message"),
+    [
+        ("position_unit", "km", "position_unit must be 'm'"),
+        ("velocity_unit", "km/s", "velocity_unit must be 'm/s'"),
+    ],
+)
+def test_state_vector_loader_rejects_wrong_declared_units(
+    tmp_path,
+    column,
+    wrong_unit,
+    message,
+):
+    path = save_satellite_state_csv(
+        tmp_path / "wrong-unit.csv",
+        EPOCHS,
+        propagate_ecef(SATELLITE, EPOCHS),
+        coordinate_frame="ECEF",
+    )
+    frame = pd.read_csv(path)
+    frame[column] = wrong_unit
+    frame.to_csv(path, index=False)
+
+    with pytest.raises(ValueError, match=message):
+        load_satellite_state_csv(path)
+
+
+def test_state_vector_loader_rejects_mislabeled_kilometre_values(tmp_path):
+    path = save_satellite_state_csv(
+        tmp_path / "mislabeled-kilometres.csv",
+        EPOCHS,
+        propagate_ecef(SATELLITE, EPOCHS),
+        coordinate_frame="ECEF",
+    )
+    frame = pd.read_csv(path)
+    state_columns = [
+        "satellite_x_m",
+        "satellite_y_m",
+        "satellite_z_m",
+        "satellite_vx_m_s",
+        "satellite_vy_m_s",
+        "satellite_vz_m_s",
+    ]
+    frame[state_columns] /= 1_000.0
+    frame.to_csv(path, index=False)
+
+    with pytest.raises(ValueError, match="geocentric radius"):
+        load_satellite_state_csv(path)
+
+
 def test_state_vector_loader_rejects_inconsistent_velocity(tmp_path):
     path = save_satellite_state_csv(
         tmp_path / "inconsistent-velocity.csv",
@@ -211,7 +313,7 @@ def test_state_vector_loader_rejects_inconsistent_velocity(tmp_path):
         "satellite_vy_m_s",
         "satellite_vz_m_s",
     ]
-    frame[velocity_columns] *= 1_000.0
+    frame[velocity_columns[0]] += 2_000.0
     frame.to_csv(path, index=False)
 
     with pytest.raises(
@@ -285,6 +387,10 @@ def test_channel_grid_cli_accepts_external_state_without_sgp4_summary(
     consistency = summary["orbit_state"]["position_velocity_consistency"]
     assert consistency["passed"] is True
     assert consistency["interval_count"] == 2
+    physical = summary["orbit_state"]["physical_validation"]
+    assert physical["passed"] is True
+    assert physical["position_unit"] == "m"
+    assert physical["velocity_unit"] == "m/s"
 
 
 def test_channel_grid_cli_requires_station_for_external_state(

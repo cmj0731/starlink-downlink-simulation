@@ -107,9 +107,10 @@ SGP4 상태는 ECEF, 이상적 모델 상태는 ECI이므로 `coordinate_frame`�
 
 외부 위성 상태 CSV의 v1 입력 계약은 다음과 같다.
 
-- `schema_version=1`
+- `schema_version=2`
 - `utc`: timezone 포함 ISO-8601, 엄격히 증가하고 중복 없음
 - `coordinate_frame`: 파일 전체가 `TEME` 또는 `ECEF` 중 하나
+- `position_unit=m`, `velocity_unit=m/s`: 파일 전체에서 고정
 - 위치: `satellite_{x,y,z}_m`, 단위 m
 - 속도: `satellite_v{x,y,z}_m_s`, 단위 m/s
 - 선택 identity: `object_name`, `norad_catalog_id`
@@ -127,6 +128,11 @@ Doppler를 다시 계산하며, 제공된 Doppler를 별도 truth로 간주하�
 넘으면 입력을 거부한다. 통과한 오차 지표는 `summary.json`에 기록하며, 이
 검사는 km/m 또는 km/s/m/s 혼동과 위치·속도 시각 불일치를 조기에 찾기 위한
 입력 계약 검증이다.
+
+필수 수치 열의 NaN/Inf를 거부하고, 표시 단위와 실제 크기의 불일치를 찾기 위해
+지구 중심 반지름 `6.3e6~1.0e8 m`와 최대 속력 `2.0e4 m/s`도 검사한다. 이
+범위는 현재 지구궤도 위성 채널 입력 계약이며 심우주 궤도 입력을 위한 범위가
+아니다.
 
 ## 5. 역할 경계
 
