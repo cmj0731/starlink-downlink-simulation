@@ -18,7 +18,11 @@ from starlink_isl.research_config import (
     ResearchBaselineConfig,
     load_research_baseline,
 )
-from starlink_isl.state_vector_io import STATE_VECTOR_CSV_SCHEMA_VERSION
+from starlink_isl.state_vector_io import (
+    POSITION_VELOCITY_ABSOLUTE_TOLERANCE_M_S,
+    POSITION_VELOCITY_RELATIVE_TOLERANCE,
+    STATE_VECTOR_CSV_SCHEMA_VERSION,
+)
 
 TEAM_INTERFACE_SCHEMA_VERSION = 1
 TEAM_INTERFACE_STATUS = "team_integration_v1"
@@ -185,6 +189,16 @@ def build_team_interface_manifest(
             ],
             "normalization_frame": "ECEF",
             "teme_velocity_transform": "v_ecef=R*v_teme-omega_E_cross_r_ecef",
+            "position_velocity_consistency": {
+                "method": (
+                    "interval displacement/dt versus endpoint-mean velocity"
+                ),
+                "absolute_tolerance_m_s": (
+                    POSITION_VELOCITY_ABSOLUTE_TOLERANCE_M_S
+                ),
+                "relative_tolerance": POSITION_VELOCITY_RELATIVE_TOLERANCE,
+                "failure_policy": "reject before channel generation",
+            },
         },
         "time_axis": {
             "unit": "s",

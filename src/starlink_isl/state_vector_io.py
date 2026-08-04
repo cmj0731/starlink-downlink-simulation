@@ -24,6 +24,8 @@ from starlink_isl.sgp4_orbit import (
 from starlink_isl.si_interface import DownlinkStateSI, downlink_state_si
 
 STATE_VECTOR_CSV_SCHEMA_VERSION = 1
+POSITION_VELOCITY_ABSOLUTE_TOLERANCE_M_S = 50.0
+POSITION_VELOCITY_RELATIVE_TOLERANCE = 0.05
 STATE_VECTOR_REQUIRED_COLUMNS = (
     "schema_version",
     "utc",
@@ -39,12 +41,42 @@ SUPPORTED_STATE_FRAMES = {"TEME", "ECEF"}
 
 
 @dataclass(frozen=True, slots=True)
+class PositionVelocityConsistency:
+    """Finite-difference agreement between supplied positions and velocities."""
+
+    interval_count: int
+    maximum_absolute_error_m_s: float
+    root_mean_square_error_m_s: float
+    maximum_relative_error: float
+    absolute_tolerance_m_s: float
+    relative_tolerance: float
+    method: str = (
+        "interval displacement divided by dt versus endpoint-mean velocity"
+    )
+
+    def as_metadata(self) -> dict[str, int | float | str | bool]:
+        """Return JSON-ready validation metadata."""
+
+        return {
+            "passed": True,
+            "interval_count": self.interval_count,
+            "maximum_absolute_error_m_s": self.maximum_absolute_error_m_s,
+            "root_mean_square_error_m_s": self.root_mean_square_error_m_s,
+            "maximum_relative_error": self.maximum_relative_error,
+            "absolute_tolerance_m_s": self.absolute_tolerance_m_s,
+            "relative_tolerance": self.relative_tolerance,
+            "method": self.method,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ExternalSatelliteState:
     """Time-ordered external states normalized to ECEF kilometres and km/s."""
 
     datetimes_utc: tuple[datetime, ...]
     state_ecef: KinematicState
     source_coordinate_frame: str
+    position_velocity_consistency: PositionVelocityConsistency
     object_name: str | None = None
     norad_catalog_id: int | None = None
 
@@ -69,6 +101,62 @@ def _constant_optional_text(frame: pd.DataFrame, column: str) -> str | None:
     if values.size > 1:
         raise ValueError(f"{column} must be constant in a state-vector CSV")
     return None if values.size == 0 else str(values[0])
+
+
+def _validate_position_velocity_consistency(
+    datetimes: tuple[datetime, ...],
+    position_m: np.ndarray,
+    velocity_m_s: np.ndarray,
+) -> PositionVelocityConsistency:
+    """Reject state vectors whose positions and velocities disagree."""
+
+    interval_s = np.asarray(
+        [
+            (end - start).total_seconds()
+            for start, end in zip(datetimes[:-1], datetimes[1:], strict=True)
+        ],
+        dtype=np.float64,
+    )
+    position_difference_velocity_m_s = (
+        np.diff(position_m, axis=0) / interval_s[:, None]
+    )
+    provided_interval_velocity_m_s = 0.5 * (
+        velocity_m_s[:-1] + velocity_m_s[1:]
+    )
+    vector_error_m_s = (
+        position_difference_velocity_m_s - provided_interval_velocity_m_s
+    )
+    absolute_error_m_s = np.linalg.norm(vector_error_m_s, axis=1)
+    reference_speed_m_s = np.maximum(
+        np.linalg.norm(provided_interval_velocity_m_s, axis=1),
+        1.0,
+    )
+    relative_error = absolute_error_m_s / reference_speed_m_s
+    allowed_error_m_s = (
+        POSITION_VELOCITY_ABSOLUTE_TOLERANCE_M_S
+        + POSITION_VELOCITY_RELATIVE_TOLERANCE * reference_speed_m_s
+    )
+    inconsistent = absolute_error_m_s > allowed_error_m_s
+    if np.any(inconsistent):
+        interval_index = int(np.argmax(absolute_error_m_s / allowed_error_m_s))
+        raise ValueError(
+            "state-vector positions and supplied velocities are inconsistent "
+            f"at interval {interval_index} "
+            f"({datetimes[interval_index].isoformat()} to "
+            f"{datetimes[interval_index + 1].isoformat()}): "
+            f"error={absolute_error_m_s[interval_index]:.6g} m/s, "
+            f"allowed={allowed_error_m_s[interval_index]:.6g} m/s"
+        )
+    return PositionVelocityConsistency(
+        interval_count=interval_s.size,
+        maximum_absolute_error_m_s=float(np.max(absolute_error_m_s)),
+        root_mean_square_error_m_s=float(
+            np.sqrt(np.mean(absolute_error_m_s**2))
+        ),
+        maximum_relative_error=float(np.max(relative_error)),
+        absolute_tolerance_m_s=POSITION_VELOCITY_ABSOLUTE_TOLERANCE_M_S,
+        relative_tolerance=POSITION_VELOCITY_RELATIVE_TOLERANCE,
+    )
 
 
 def save_satellite_state_csv(
@@ -181,6 +269,11 @@ def load_satellite_state_csv(path: str | Path) -> ExternalSatelliteState:
         np.isfinite(velocity_m_s)
     ):
         raise ValueError("state-vector position and velocity must be finite")
+    consistency = _validate_position_velocity_consistency(
+        datetimes,
+        position_m,
+        velocity_m_s,
+    )
     source_state = KinematicState(position_m / 1_000.0, velocity_m_s / 1_000.0)
     state_ecef = (
         source_state
@@ -193,6 +286,7 @@ def load_satellite_state_csv(path: str | Path) -> ExternalSatelliteState:
         datetimes_utc=datetimes,
         state_ecef=state_ecef,
         source_coordinate_frame=source_frame,
+        position_velocity_consistency=consistency,
         object_name=_constant_optional_text(frame, "object_name"),
         norad_catalog_id=norad_id,
     )

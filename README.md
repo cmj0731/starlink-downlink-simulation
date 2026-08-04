@@ -248,6 +248,12 @@ t_m=t_{\mathrm{frame}}
 않는다. 실제 계산에 사용한 WGS-84 geodetic 좌표는 결과 `summary.json`의
 `station` 객체에 항상 기록된다.
 
+loader는 좌표계 변환 전에 각 구간의 `position difference / dt`와 제공된 양 끝
+속도의 평균을 벡터로 비교한다. 허용오차는 `50 m/s + 기준 속력의 5%`이며 이를
+넘으면 위치·속도의 시각, 좌표계 또는 단위가 일치하지 않는 것으로 보고 채널
+생성을 중단한다. 통과한 최대·RMS·상대 오차와 허용값은 `summary.json`의
+`orbit_state.position_velocity_consistency`에 기록된다.
+
 기존 SGP4 요약 없이 외부 벡터만 사용할 때의 명령은 다음과 같다.
 
 ```powershell

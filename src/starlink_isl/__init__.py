@@ -113,8 +113,11 @@ from starlink_isl.state_resampling import (
     resample_downlink_state_si,
 )
 from starlink_isl.state_vector_io import (
+    POSITION_VELOCITY_ABSOLUTE_TOLERANCE_M_S,
+    POSITION_VELOCITY_RELATIVE_TOLERANCE,
     STATE_VECTOR_CSV_SCHEMA_VERSION,
     ExternalSatelliteState,
+    PositionVelocityConsistency,
     external_state_downlink_si,
     load_satellite_state_csv,
     save_satellite_state_csv,
@@ -151,6 +154,7 @@ __all__ = [
     "OFDMFrequencyAxis",
     "OFDMTimeAxis",
     "PilotQPSKSnapshot",
+    "PositionVelocityConsistency",
     "QPSKSnapshot",
     "ReceiverFilterConfig",
     "ReceiverFilterResult",
@@ -168,6 +172,8 @@ __all__ = [
     "REFERENCE_NOISE_TEMPERATURE_K",
     "SPEED_OF_LIGHT_KM_S",
     "CHANNEL_CSV_SCHEMA_VERSION",
+    "POSITION_VELOCITY_ABSOLUTE_TOLERANCE_M_S",
+    "POSITION_VELOCITY_RELATIVE_TOLERANCE",
     "STATE_VECTOR_CSV_SCHEMA_VERSION",
     "VisibilityWindow",
     "apply_receiver_filter",

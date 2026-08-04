@@ -69,6 +69,11 @@ def test_state_vector_csv_normalizes_to_ecef(tmp_path, coordinate_frame):
     loaded = load_satellite_state_csv(path)
     expected_ecef = propagate_ecef(SATELLITE, EPOCHS)
     assert loaded.source_coordinate_frame == coordinate_frame
+    assert loaded.position_velocity_consistency.interval_count == 2
+    assert (
+        loaded.position_velocity_consistency.maximum_relative_error
+        < 1.0e-5
+    )
     assert loaded.object_name == "STARLINK-5285"
     assert loaded.norad_catalog_id == 55296
     np.testing.assert_allclose(
@@ -193,6 +198,29 @@ def test_state_vector_loader_rejects_ambiguous_frames(tmp_path):
         load_satellite_state_csv(path)
 
 
+def test_state_vector_loader_rejects_inconsistent_velocity(tmp_path):
+    path = save_satellite_state_csv(
+        tmp_path / "inconsistent-velocity.csv",
+        EPOCHS,
+        propagate_ecef(SATELLITE, EPOCHS),
+        coordinate_frame="ECEF",
+    )
+    frame = pd.read_csv(path)
+    velocity_columns = [
+        "satellite_vx_m_s",
+        "satellite_vy_m_s",
+        "satellite_vz_m_s",
+    ]
+    frame[velocity_columns] *= 1_000.0
+    frame.to_csv(path, index=False)
+
+    with pytest.raises(
+        ValueError,
+        match="positions and supplied velocities are inconsistent",
+    ):
+        load_satellite_state_csv(path)
+
+
 def test_channel_grid_cli_accepts_external_state_without_sgp4_summary(
     tmp_path,
     monkeypatch,
@@ -254,6 +282,9 @@ def test_channel_grid_cli_accepts_external_state_without_sgp4_summary(
         "altitude_m": 0.0,
         "coordinate_definition": "WGS-84 geodetic",
     }
+    consistency = summary["orbit_state"]["position_velocity_consistency"]
+    assert consistency["passed"] is True
+    assert consistency["interval_count"] == 2
 
 
 def test_channel_grid_cli_requires_station_for_external_state(

@@ -611,6 +611,9 @@ def _summary(
                 float(anchor_offsets_s[-1]),
             ],
             "interpolation": config.channel_state.resampling_method,
+            "position_velocity_consistency": metadata.get(
+                "position_velocity_consistency"
+            ),
         },
         "channel_formula": (
             "H[m,k]=a[m,k] exp(j phi_D[m]) "
@@ -927,6 +930,9 @@ def main() -> None:
             "object_name": external.object_name,
             "norad_catalog_id": external.norad_catalog_id,
             "source_file": str(args.state_csv),
+            "position_velocity_consistency": (
+                external.position_velocity_consistency.as_metadata()
+            ),
         }
     else:
         if geometry_summary is None:
