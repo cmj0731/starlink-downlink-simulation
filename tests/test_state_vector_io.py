@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import starlink_isl.channel_grid_simulate as channel_grid_module
 from starlink_isl import GroundStation, load_research_baseline
 from starlink_isl.channel_grid_simulate import (
     main as channel_grid_main,
@@ -205,6 +206,13 @@ def test_channel_grid_cli_accepts_external_state_without_sgp4_summary(
         norad_catalog_id=55296,
     )
     output = tmp_path / "cli-output"
+    monkeypatch.setattr(channel_grid_module, "_save_heatmap", lambda *args: None)
+    monkeypatch.setattr(
+        channel_grid_module,
+        "_save_synchronization_comparison",
+        lambda *args: None,
+    )
+    monkeypatch.setattr(channel_grid_module, "_save_slices", lambda *args: None)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -218,6 +226,12 @@ def test_channel_grid_cli_accepts_external_state_without_sgp4_summary(
             str(tmp_path / "does-not-exist.json"),
             "--reference-utc",
             REFERENCE.isoformat(),
+            "--station-latitude-deg",
+            "37.2934",
+            "--station-longitude-deg",
+            "126.9747",
+            "--station-altitude-m",
+            "0",
             "--output",
             str(output),
             "--symbol-count",
@@ -234,3 +248,44 @@ def test_channel_grid_cli_accepts_external_state_without_sgp4_summary(
     assert summary["orbit_state"]["reference_model"] == (
         "external state-vector CSV"
     )
+    assert summary["station"] == {
+        "latitude_deg": 37.2934,
+        "longitude_deg": 126.9747,
+        "altitude_m": 0.0,
+        "coordinate_definition": "WGS-84 geodetic",
+    }
+
+
+def test_channel_grid_cli_requires_station_for_external_state(
+    tmp_path,
+    monkeypatch,
+):
+    state_path = save_satellite_state_csv(
+        tmp_path / "provided-state.csv",
+        EPOCHS,
+        propagate_ecef(SATELLITE, EPOCHS),
+        coordinate_frame="ECEF",
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "starlink-channel-grid",
+            "--config",
+            str(BASELINE_PATH),
+            "--state-csv",
+            str(state_path),
+            "--geometry-summary",
+            str(tmp_path / "does-not-exist.json"),
+            "--reference-utc",
+            REFERENCE.isoformat(),
+            "--output",
+            str(tmp_path / "cli-output"),
+        ],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="requires explicit ground-station coordinates",
+    ):
+        channel_grid_main()

@@ -243,6 +243,11 @@ t_m=t_{\mathrm{frame}}
 기준 시각을 앞뒤에서 포함해야 한다. 이후 위치·속도를 cubic Hermite 보간하고
 보간된 벡터에서 LOS, range rate, delay, Doppler를 다시 계산한다.
 
+외부 상태 CSV를 사용할 때는 지상국 위도·경도·고도 옵션을 모두 명시해야 한다.
+기존 SGP4 요약 파일이 있더라도 외부 상태 실행이 그 좌표를 묵시적으로 재사용하지
+않는다. 실제 계산에 사용한 WGS-84 geodetic 좌표는 결과 `summary.json`의
+`station` 객체에 항상 기록된다.
+
 기존 SGP4 요약 없이 외부 벡터만 사용할 때의 명령은 다음과 같다.
 
 ```powershell

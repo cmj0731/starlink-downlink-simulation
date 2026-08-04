@@ -398,6 +398,7 @@ def _summary(
     reference_utc: datetime,
     reference_event: str,
     anchor_offsets_s: np.ndarray,
+    station: GroundStation,
     source_metadata: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     magnitude_db = 20.0 * np.log10(np.abs(grid.channel_response))
@@ -434,6 +435,12 @@ def _summary(
         "norad_catalog_id": norad_catalog_id,
         "reference_event": reference_event,
         "reference_utc": _iso(reference_utc),
+        "station": {
+            "latitude_deg": station.latitude_deg,
+            "longitude_deg": station.longitude_deg,
+            "altitude_m": station.altitude_m,
+            "coordinate_definition": "WGS-84 geodetic",
+        },
         "scenario_status": config.scenario.status,
         "represents_actual_starlink_waveform": (
             config.scenario.represents_actual_starlink_waveform
@@ -730,6 +737,7 @@ def run_channel_grid_simulation(
                 reference,
                 reference_event,
                 anchor_offsets_s,
+                station,
                 source_metadata,
             ),
             ensure_ascii=False,
@@ -826,23 +834,45 @@ def main() -> None:
         if geometry_summary is not None
         else {}
     )
-    station = GroundStation(
-        latitude_deg=(
-            args.station_latitude_deg
-            if args.station_latitude_deg is not None
-            else float(station_values.get("latitude_deg", 37.2934))
-        ),
-        longitude_deg=(
-            args.station_longitude_deg
-            if args.station_longitude_deg is not None
-            else float(station_values.get("longitude_deg", 126.9747))
-        ),
-        altitude_m=(
-            args.station_altitude_m
-            if args.station_altitude_m is not None
-            else float(station_values.get("altitude_m", 0.0))
-        ),
-    )
+    if args.state_csv is not None:
+        required_station_arguments = {
+            "--station-latitude-deg": args.station_latitude_deg,
+            "--station-longitude-deg": args.station_longitude_deg,
+            "--station-altitude-m": args.station_altitude_m,
+        }
+        missing_station_arguments = [
+            name
+            for name, value in required_station_arguments.items()
+            if value is None
+        ]
+        if missing_station_arguments:
+            raise ValueError(
+                "--state-csv requires explicit ground-station coordinates: "
+                + ", ".join(missing_station_arguments)
+            )
+        station = GroundStation(
+            latitude_deg=float(args.station_latitude_deg),
+            longitude_deg=float(args.station_longitude_deg),
+            altitude_m=float(args.station_altitude_m),
+        )
+    else:
+        station = GroundStation(
+            latitude_deg=(
+                args.station_latitude_deg
+                if args.station_latitude_deg is not None
+                else float(station_values.get("latitude_deg", 37.2934))
+            ),
+            longitude_deg=(
+                args.station_longitude_deg
+                if args.station_longitude_deg is not None
+                else float(station_values.get("longitude_deg", 126.9747))
+            ),
+            altitude_m=(
+                args.station_altitude_m
+                if args.station_altitude_m is not None
+                else float(station_values.get("altitude_m", 0.0))
+            ),
+        )
     minimum_elevation_deg = (
         args.minimum_elevation_deg
         if args.minimum_elevation_deg is not None

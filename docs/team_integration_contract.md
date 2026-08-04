@@ -118,6 +118,10 @@ SGP4 상태는 ECEF, 이상적 모델 상태는 ECI이므로 `coordinate_frame`�
 다시 회전하지 않는다. 입력 위치·속도를 Hermite 보간한 뒤 LOS, range rate와
 Doppler를 다시 계산하며, 제공된 Doppler를 별도 truth로 간주하지 않는다.
 
+외부 상태 CSV로 채널을 생성할 때는 지상국의 WGS-84 geodetic 위도·경도·고도를
+모두 명시한다. 기존 산출물의 지상국 좌표를 묵시적으로 상속하지 않으며, 실제
+사용 좌표는 채널 `summary.json`의 `station` 객체에 반드시 기록한다.
+
 ## 5. 역할 경계
 
 채널 담당은 `H[m,k]`, 두 축, 거리·지연·range rate·Doppler·경로 이득과
